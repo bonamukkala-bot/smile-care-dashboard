@@ -624,6 +624,67 @@ export async function invokeManageAppointment(body) {
   }
 }
 
+/**
+ * Live clinic operating status in Asia/Kolkata timezone:
+ * Mon-Sat: 10:00 AM-1:30 PM & 5:00-8:30 PM. Break: 1:30-5:00 PM. Sunday: closed.
+ */
+export function getClinicStatusIST() {
+  try {
+    const now = new Date()
+    const dayStr = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'Asia/Kolkata',
+      weekday: 'short',
+    }).format(now)
+
+    if (dayStr === 'Sun') {
+      return { status: 'Closed', color: 'muted' }
+    }
+
+    const parts = new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'Asia/Kolkata',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    }).formatToParts(now)
+
+    const hour = parseInt(parts.find((p) => p.type === 'hour')?.value || '0', 10)
+    const minute = parseInt(parts.find((p) => p.type === 'minute')?.value || '0', 10)
+    const mins = hour * 60 + minute
+
+    if (mins >= 600 && mins < 810) {
+      return { status: 'Open now', color: 'green' }
+    }
+    if (mins >= 810 && mins < 1020) {
+      return { status: 'On break', color: 'amber' }
+    }
+    if (mins >= 1020 && mins < 1230) {
+      return { status: 'Open now', color: 'green' }
+    }
+    return { status: 'Closed', color: 'muted' }
+  } catch {
+    return { status: 'Closed', color: 'muted' }
+  }
+}
+
+/**
+ * Format today's date in IST like "Sunday, 1 November 2026"
+ */
+export function getISTLongDate() {
+  try {
+    const now = new Date()
+    return new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'Asia/Kolkata',
+      weekday: 'long',
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric',
+    }).format(now)
+  } catch {
+    return ''
+  }
+}
+
+
 
 
 

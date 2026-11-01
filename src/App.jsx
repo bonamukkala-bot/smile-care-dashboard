@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { supabase } from './lib/supabase'
 import Login from './components/Login'
+import AppShell from './components/AppShell'
 import Home from './components/Home'
 import CallLog from './components/CallLog'
 import CallDetail from './components/CallDetail'
@@ -9,7 +10,6 @@ import NeedsAttention from './components/NeedsAttention'
 import TodayBookings from './components/TodayBookings'
 import Appointments from './components/Appointments'
 import AppointmentDetail from './components/AppointmentDetail'
-import HealthStrip from './components/HealthStrip'
 import './App.css'
 
 export default function App() {
@@ -98,7 +98,7 @@ export default function App() {
     }
   }, [])
 
-  const handleUnauthorizedLogout = async () => {
+  const handleLogout = async () => {
     setLoggingOut(true)
     try {
       const { error } = await supabase.auth.signOut()
@@ -110,6 +110,10 @@ export default function App() {
     } finally {
       setLoggingOut(false)
     }
+  }
+
+  const handleUnauthorizedLogout = async () => {
+    await handleLogout()
   }
 
   if (loading) {
@@ -148,8 +152,7 @@ export default function App() {
   }
 
   return (
-    <>
-      <HealthStrip />
+    <AppShell profile={profile} onLogout={handleLogout} loggingOut={loggingOut}>
       <Routes>
         <Route path="/" element={<Home profile={profile} />} />
         <Route path="/calls" element={<CallLog />} />
@@ -169,6 +172,6 @@ export default function App() {
         />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
-    </>
+    </AppShell>
   )
 }

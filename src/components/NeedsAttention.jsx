@@ -1,40 +1,66 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { Link } from 'react-router-dom'
+import { CheckCircle2, ChevronDown, ChevronUp, AlertCircle, ArrowLeft } from 'lucide-react'
 import { supabase } from '../lib/supabase'
-import {
-  formatIST,
-  getPatientNumber,
-  maskPhone,
-  formatAttentionType,
-  formatWaitTime,
-  isOpenOver24Hours,
-  formatSummary,
-} from '../lib/helpers'
+import AttentionFilters from './AttentionFilters'
+import AttentionCard from './AttentionCard'
+import { formatTimeAgo, formatAttentionType } from '../lib/helpers'
 
 export default function NeedsAttention({ currentUserId }) {
   const [items, setItems] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [reloadKey, setReloadKey] = useState(0)
+  const [lastRefreshedAt, setLastRefreshedAt] = useState(() => new Date())
 
-  // Resolution inline state
+  // Filtering & Search
+  const [activeFilter, setActiveFilter] = useState('all') // 'all' | typeKey
+  const [searchQuery, setSearchQuery] = useState('')
+
+  // Resolve Panel & State per item
   const [activeResolvingId, setActiveResolvingId] = useState(null)
-  const [resolveNote, setResolveNote] = useState('')
+  const [resolveNotes, setResolveNotes] = useState({}) // { [itemId]: string }
   const [savingId, setSavingId] = useState(null)
   const [saveErrors, setSaveErrors] = useState({})
+  const [fadingItemIds, setFadingItemIds] = useState(new Set())
+
+  // Toast notification state
+  const [toastMessage, setToastMessage] = useState(null)
+  const toastTimerRef = useRef(null)
+
+  // Textarea ref to focus on keyboard shortcut 'R'
+  const activeTextareaRef = useRef(null)
 
   // Recently resolved section
+  const [resolvedCount, setResolvedCount] = useState(0)
   const [showResolved, setShowResolved] = useState(false)
   const [resolvedItems, setResolvedItems] = useState([])
   const [loadingResolved, setLoadingResolved] = useState(false)
   const [resolvedError, setResolvedError] = useState(null)
 
+  // 1. Fetch lightweight resolved count on mount and reload
+  useEffect(() => {
+    let isMounted = true
+    supabase
+      .from('attention_items')
+      .select('id', { count: 'exact', head: true })
+      .eq('status', 'resolved')
+      .then(({ count, error: countErr }) => {
+        if (isMounted && !countErr && typeof count === 'number') {
+          setResolvedCount(count)
+        }
+      })
+    return () => {
+      isMounted = false
+    }
+  }, [reloadKey])
+
+  // 2. Fetch Open Attention Items & Join Calls
   useEffect(() => {
     let isMounted = true
 
     async function loadOpenAttentionItems() {
       try {
-        // 1. Fetch all OPEN attention items
         const { data: openData, error: openError } = await supabase
           .from('attention_items')
           .select('id, call_id, type, status, note, resolved_by, resolved_at, created_at')
@@ -43,16 +69,17 @@ export default function NeedsAttention({ currentUserId }) {
         if (!isMounted) return
         if (openError) throw openError
 
+        setLastRefreshedAt(new Date())
+
         if (!openData || openData.length === 0) {
           setItems([])
           setLoading(false)
           return
         }
 
-        // 2. Fetch calls for these call_ids
         const callIds = [...new Set(openData.map((item) => item.call_id).filter(Boolean))]
-
         let callMap = {}
+
         if (callIds.length > 0) {
           const { data: callsData, error: callsError } = await supabase
             .from('calls')
@@ -69,17 +96,17 @@ export default function NeedsAttention({ currentUserId }) {
           }
         }
 
-        // 3. Join in JavaScript
         const joined = openData.map((item) => ({
           ...item,
           call: callMap[item.call_id] || null,
         }))
 
         setItems(joined)
+        setError(null)
       } catch (err) {
         if (!isMounted) return
         console.error('Failed to load attention items:', err.message || err)
-        setError('Unable to load attention items. Please try again.')
+        setError('Unable to load attention items. Please check your connection.')
       } finally {
         if (isMounted) {
           setLoading(false)
@@ -89,7 +116,6 @@ export default function NeedsAttention({ currentUserId }) {
 
     loadOpenAttentionItems()
 
-    // Refresh open list automatically every 60 seconds
     const interval = setInterval(() => {
       if (isMounted) {
         loadOpenAttentionItems()
@@ -102,8 +128,24 @@ export default function NeedsAttention({ currentUserId }) {
     }
   }, [reloadKey])
 
-  // Split and sort: emergencies first, then others; oldest first in each
-  const { emergencies, others } = useMemo(() => {
+  // Calculate dynamic type counts over all open items
+  const typeCounts = useMemo(() => {
+    const counts = {}
+    for (const item of items) {
+      counts[item.type] = (counts[item.type] || 0) + 1
+    }
+    return counts
+  }, [items])
+
+  // Auto-reset activeFilter to 'all' if selected type is no longer present
+  useEffect(() => {
+    if (activeFilter !== 'all' && (!typeCounts[activeFilter] || typeCounts[activeFilter] === 0)) {
+      setActiveFilter('all')
+    }
+  }, [typeCounts, activeFilter])
+
+  // Split items into Emergencies and Others (oldest first within each)
+  const { allEmergencies, allOthers } = useMemo(() => {
     const emList = []
     const otList = []
 
@@ -118,28 +160,97 @@ export default function NeedsAttention({ currentUserId }) {
     emList.sort((a, b) => new Date(a.created_at) - new Date(b.created_at))
     otList.sort((a, b) => new Date(a.created_at) - new Date(b.created_at))
 
-    return { emergencies: emList, others: otList }
+    return { allEmergencies: emList, allOthers: otList }
   }, [items])
 
-  // Handle Mark Resolved button click
+  const hasAnyEmergency = allEmergencies.length > 0
+  const totalOpenCount = items.length
+
+  // Filter items based on activeFilter and searchQuery
+  const filterList = useCallback(
+    (list) => {
+      let filtered = list
+      if (activeFilter !== 'all') {
+        filtered = filtered.filter((item) => item.type === activeFilter)
+      }
+
+      const q = searchQuery.trim().toLowerCase()
+      if (q) {
+        const searchDigits = q.replace(/\D/g, '')
+        filtered = filtered.filter((item) => {
+          const call = item.call
+          const name = (call?.variables?.full_name || '').toLowerCase()
+          if (name.includes(q)) return true
+
+          const summary = (call?.summary || '').toLowerCase()
+          if (summary.includes(q)) return true
+
+          const note = (item.note || '').toLowerCase()
+          if (note.includes(q)) return true
+
+          if (searchDigits) {
+            const rawPhone = (call?.patient_number || call?.from_number || '').replace(/\D/g, '')
+            if (rawPhone.includes(searchDigits)) return true
+          }
+          return false
+        })
+      }
+      return filtered
+    },
+    [activeFilter, searchQuery]
+  )
+
+  const visibleEmergencies = useMemo(() => filterList(allEmergencies), [filterList, allEmergencies])
+  const visibleOthers = useMemo(() => filterList(allOthers), [filterList, allOthers])
+  const allVisible = useMemo(
+    () => [...visibleEmergencies, ...visibleOthers],
+    [visibleEmergencies, visibleOthers]
+  )
+
+  // Show toast notification
+  const triggerToast = (msg) => {
+    setToastMessage(msg)
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current)
+    toastTimerRef.current = setTimeout(() => {
+      setToastMessage(null)
+    }, 4000)
+  }
+
+  // Handle Mark Resolved click
   const handleStartResolve = (itemId) => {
     setActiveResolvingId(itemId)
-    setResolveNote('')
     setSaveErrors((prev) => ({ ...prev, [itemId]: null }))
+    // Focus textarea on next render
+    setTimeout(() => {
+      activeTextareaRef.current?.focus()
+    }, 50)
   }
 
   const handleCancelResolve = () => {
     setActiveResolvingId(null)
-    setResolveNote('')
+  }
+
+  const handleNoteChange = (itemId, text) => {
+    setResolveNotes((prev) => ({ ...prev, [itemId]: text }))
+    setSaveErrors((prev) => ({ ...prev, [itemId]: null }))
   }
 
   // Handle Confirm Resolved
   const handleConfirmResolve = async (item) => {
+    const noteText = (resolveNotes[item.id] || '').trim()
+    if (!noteText) {
+      setSaveErrors((prev) => ({
+        ...prev,
+        [item.id]: 'Please enter a resolution note.',
+      }))
+      activeTextareaRef.current?.focus()
+      return
+    }
+
     setSavingId(item.id)
     setSaveErrors((prev) => ({ ...prev, [item.id]: null }))
 
     try {
-      // Determine user id
       let userId = currentUserId
       if (!userId) {
         const { data: authData } = await supabase.auth.getUser()
@@ -150,7 +261,7 @@ export default function NeedsAttention({ currentUserId }) {
         .from('attention_items')
         .update({
           status: 'resolved',
-          note: resolveNote.trim() || null,
+          note: noteText,
           resolved_by: userId,
           resolved_at: new Date().toISOString(),
         })
@@ -161,25 +272,83 @@ export default function NeedsAttention({ currentUserId }) {
       if (updateError || !data || data.length !== 1) {
         setSaveErrors((prev) => ({
           ...prev,
-          [item.id]: 'Could not save. Please try again.',
+          [item.id]: 'Could not save resolution. Please try again.',
         }))
       } else {
-        // Success: remove item from local list without reload
-        setItems((prev) => prev.filter((i) => i.id !== item.id))
-        setActiveResolvingId(null)
-        setResolveNote('')
+        // Trigger fade out
+        setFadingItemIds((prev) => new Set([...prev, item.id]))
+
+        setTimeout(() => {
+          // Remove from local items
+          setItems((prev) => prev.filter((i) => i.id !== item.id))
+          setFadingItemIds((prev) => {
+            const next = new Set(prev)
+            next.delete(item.id)
+            return next
+          })
+          setActiveResolvingId(null)
+          setResolveNotes((prev) => {
+            const next = { ...prev }
+            delete next[item.id]
+            return next
+          })
+          setResolvedCount((prev) => prev + 1)
+        }, 300)
+
+        triggerToast('Marked as resolved')
+
+        // Dispatch live event so AppShell/Sidebar/TopBar re-fetch counts immediately
+        window.dispatchEvent(new CustomEvent('attention-changed'))
       }
     } catch {
       setSaveErrors((prev) => ({
         ...prev,
-        [item.id]: 'Could not save. Please try again.',
+        [item.id]: 'Could not save resolution. Please try again.',
       }))
     } finally {
       setSavingId(null)
     }
   }
 
-  // Handle Recently Resolved toggle & fetch
+  // Keyboard shortcut listener for 'r' / 'Escape'
+  useEffect(() => {
+    function handleKeyDown(e) {
+      // Ignore if typing in an input, textarea, select, or contenteditable
+      const target = e.target
+      const isInput =
+        target.tagName === 'INPUT' ||
+        target.tagName === 'TEXTAREA' ||
+        target.tagName === 'SELECT' ||
+        target.isContentEditable
+
+      if (e.key === 'Escape') {
+        if (activeResolvingId !== null) {
+          setActiveResolvingId(null)
+        }
+        return
+      }
+
+      if (e.key === 'r' || e.key === 'R') {
+        if (isInput) return
+        if (e.ctrlKey || e.altKey || e.metaKey) return
+        if (activeResolvingId !== null) return // Already open
+
+        // Open resolve panel on the first visible card
+        if (allVisible.length > 0) {
+          e.preventDefault()
+          const firstItem = allVisible[0]
+          handleStartResolve(firstItem.id)
+        }
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [allVisible, activeResolvingId])
+
+  // Lazy-load Recently Resolved items
   const handleToggleResolved = async () => {
     if (showResolved) {
       setShowResolved(false)
@@ -191,10 +360,9 @@ export default function NeedsAttention({ currentUserId }) {
     setResolvedError(null)
 
     try {
-      // 1. Fetch latest 20 resolved items
       const { data: resData, error: resError } = await supabase
         .from('attention_items')
-        .select('id, call_id, type, status, note, resolved_by, resolved_at, created_at')
+        .select('id, call_id, type, status, note, resolved_at, created_at')
         .eq('status', 'resolved')
         .order('resolved_at', { ascending: false })
         .limit(20)
@@ -207,9 +375,9 @@ export default function NeedsAttention({ currentUserId }) {
         return
       }
 
-      // 2. Fetch calls
       const callIds = [...new Set(resData.map((i) => i.call_id).filter(Boolean))]
       let callMap = {}
+
       if (callIds.length > 0) {
         const { data: callsData } = await supabase
           .from('calls')
@@ -221,173 +389,75 @@ export default function NeedsAttention({ currentUserId }) {
         }
       }
 
-      // 3. Fetch staff profiles for resolved_by
-      const userIds = [...new Set(resData.map((i) => i.resolved_by).filter(Boolean))]
-      let staffMap = {}
-      if (userIds.length > 0) {
-        const { data: staffData } = await supabase
-          .from('staff_profiles')
-          .select('user_id, full_name')
-          .in('user_id', userIds)
-
-        for (const staff of staffData || []) {
-          staffMap[staff.user_id] = staff.full_name
-        }
-      }
-
-      const joinedResolved = resData.map((item) => ({
+      const joined = resData.map((item) => ({
         ...item,
         callerName: callMap[item.call_id]?.variables?.full_name || 'Unknown caller',
-        resolverName: (item.resolved_by && staffMap[item.resolved_by]) || 'Staff',
       }))
 
-      setResolvedItems(joinedResolved)
+      setResolvedItems(joined)
     } catch (err) {
-      console.error('Failed to load resolved items:', err.message || err)
+      console.error('Failed to load resolved items:', err)
       setResolvedError('Unable to load recently resolved items.')
     } finally {
       setLoadingResolved(false)
     }
   }
 
-  const renderItemCard = (item, isEmergency = false) => {
-    const call = item.call
-    const callerName = call?.variables?.full_name
-      ? String(call.variables.full_name)
-      : 'Unknown caller'
-    const fullPhone = getPatientNumber(call)
-    const maskedPhone = maskPhone(fullPhone)
-    const summaryText = formatSummary(call?.summary)
-    const callTimeIST = formatIST(call?.started_at)
-    const waitTimeText = formatWaitTime(item.created_at)
-    const isOver24H = isOpenOver24Hours(item.created_at)
-    const typeLabel = formatAttentionType(item.type)
-    const isResolving = activeResolvingId === item.id
-    const isSaving = savingId === item.id
-    const saveError = saveErrors[item.id]
-
-    return (
-      <article
-        key={item.id}
-        className={`card attention-card ${isEmergency ? 'emergency-card' : ''}`}
-      >
-        <div className="attention-card-header">
-          <span
-            className={`badge attention-type-badge ${
-              isEmergency ? 'type-badge-emergency' : 'type-badge-other'
-            }`}
-          >
-            {typeLabel}
-          </span>
-          <span className="wait-time-tag">{waitTimeText}</span>
-        </div>
-
-        <div className="attention-card-body">
-          <div className="attention-caller-row">
-            <h3 className="attention-caller-name">{callerName}</h3>
-            <span className="attention-phone">{maskedPhone}</span>
-          </div>
-
-          <p className="attention-summary">
-            <span className="summary-label">Summary: </span>
-            {summaryText}
-          </p>
-
-          <div className="attention-meta-row">
-            <span className="call-time-meta">Call time: {callTimeIST}</span>
-          </div>
-
-          {isOver24H && (
-            <div className="warning-banner" role="alert">
-              ⚠️ Open for more than 24 hours - please handle
-            </div>
-          )}
-        </div>
-
-        {/* Action Controls */}
-        <div className="attention-card-actions">
-          <Link
-            to={`/calls/${item.call_id}`}
-            className="btn btn-secondary btn-open-call"
-          >
-            Open call
-          </Link>
-
-          {!isResolving && (
-            <button
-              type="button"
-              onClick={() => handleStartResolve(item.id)}
-              className="btn btn-primary btn-resolve"
-            >
-              Mark resolved
-            </button>
-          )}
-        </div>
-
-        {/* Inline Resolve Form */}
-        {isResolving && (
-          <div className="resolve-form-box">
-            <label htmlFor={`note-${item.id}`} className="resolve-label">
-              Note (optional)
-            </label>
-            <textarea
-              id={`note-${item.id}`}
-              value={resolveNote}
-              onChange={(e) => setResolveNote(e.target.value)}
-              placeholder="e.g. Called back and rescheduled for Tuesday"
-              className="resolve-textarea"
-              disabled={isSaving}
-              rows={3}
-            />
-
-            {saveError && (
-              <p className="resolve-error-text" role="alert">
-                {saveError}
-              </p>
-            )}
-
-            <div className="resolve-btn-row">
-              <button
-                type="button"
-                onClick={() => handleConfirmResolve(item)}
-                disabled={isSaving}
-                className="btn btn-primary btn-confirm-resolve"
-              >
-                {isSaving ? 'Saving...' : 'Confirm resolved'}
-              </button>
-              <button
-                type="button"
-                onClick={handleCancelResolve}
-                disabled={isSaving}
-                className="btn btn-secondary btn-cancel-resolve"
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        )}
-      </article>
-    )
-  }
-
   return (
-    <div className="page-container">
-      <header className="page-header">
-        <Link to="/" className="btn btn-back">
-          ← Back
-        </Link>
-        <h1 className="page-heading">Needs Attention</h1>
-      </header>
-
-      {loading && (
-        <div className="loading-card">
-          <div className="spinner" aria-hidden="true" />
-          <p className="loading-text">Loading items that need attention...</p>
+    <div className="needs-attention-screen">
+      {/* Toast Alert */}
+      {toastMessage && (
+        <div className="attention-toast-notice" role="status" aria-live="polite">
+          <CheckCircle2 size={18} className="toast-check-icon" />
+          <span>{toastMessage}</span>
         </div>
       )}
 
+      {/* 1. Top Header Row */}
+      <header className="page-header attention-header-row">
+        <div className="header-left-group">
+          <Link to="/" className="btn btn-back">
+            <ArrowLeft size={16} />
+            <span>Back</span>
+          </Link>
+          <div className="attention-title-wrap">
+            <h1 className="page-heading">Needs Attention</h1>
+            <span
+              className={`attention-count-badge ${
+                hasAnyEmergency ? 'badge-emergency' : 'badge-attention'
+              }`}
+              aria-label={`${totalOpenCount} open attention items`}
+            >
+              {totalOpenCount}
+            </span>
+          </div>
+        </div>
+      </header>
+
+      {/* 2. Search & Filter Controls */}
+      <AttentionFilters
+        totalOpenCount={totalOpenCount}
+        typeCounts={typeCounts}
+        activeFilter={activeFilter}
+        onSelectFilter={setActiveFilter}
+        searchQuery={searchQuery}
+        onSearchChange={setSearchQuery}
+        lastRefreshedAt={lastRefreshedAt}
+      />
+
+      {/* Loading Skeletons */}
+      {loading && (
+        <div className="attention-skeletons" aria-busy="true" aria-label="Loading attention items">
+          <div className="skeleton-card skeleton-triage-card" />
+          <div className="skeleton-card skeleton-triage-card" />
+          <div className="skeleton-card skeleton-triage-card" />
+        </div>
+      )}
+
+      {/* Fetch Error */}
       {!loading && error && (
-        <div className="card error-card">
+        <div className="card error-card" role="alert">
+          <AlertCircle size={28} className="error-icon" />
           <p className="error-text">{error}</p>
           <button
             type="button"
@@ -403,98 +473,149 @@ export default function NeedsAttention({ currentUserId }) {
         </div>
       )}
 
-      {!loading && !error && items.length === 0 && (
-        <div className="card all-clear-card">
-          <div className="all-clear-icon">✓</div>
-          <h2 className="all-clear-title">All clear - nothing needs attention</h2>
-          <p className="all-clear-subtitle">
-            All calls and patient inquiries have been handled.
-          </p>
+      {/* Empty State: All Clear (No items in database) */}
+      {!loading && !error && totalOpenCount === 0 && (
+        <div className="card attention-all-clear-card" role="status">
+          <div className="all-clear-icon-wrap">
+            <CheckCircle2 size={36} className="all-clear-check-icon" />
+          </div>
+          <h2 className="all-clear-heading">All clear</h2>
+          <p className="all-clear-subtext">Nothing needs attention right now.</p>
         </div>
       )}
 
-      {!loading && !error && items.length > 0 && (
-        <main className="attention-sections-container">
-          {/* Emergency Section */}
-          {emergencies.length > 0 && (
-            <section className="emergency-group-section">
-              <div className="emergency-section-header">
-                <h2 className="emergency-title">🚨 Emergencies</h2>
-                <span className="emergency-count-badge">
-                  {emergencies.length}
-                </span>
+      {/* Empty State: Filter/Search matched 0 */}
+      {!loading && !error && totalOpenCount > 0 && allVisible.length === 0 && (
+        <div className="card attention-no-results-card">
+          <p className="no-results-text">No items match your search</p>
+          <button
+            type="button"
+            onClick={() => {
+              setSearchQuery('')
+              setActiveFilter('all')
+            }}
+            className="btn btn-secondary btn-sm mt-8"
+          >
+            Clear filters
+          </button>
+        </div>
+      )}
+
+      {/* 3. Triage Sections */}
+      {!loading && !error && allVisible.length > 0 && (
+        <main className="attention-cards-container">
+          {/* Section A: Emergencies */}
+          {visibleEmergencies.length > 0 && (
+            <section className="triage-section emergency-triage-section">
+              <div className="section-rule-header">
+                <span className="emergency-rule-title">EMERGENCY - CALL BACK NOW</span>
+                <div className="hairline-rule hairline-emergency" />
               </div>
-              <div className="attention-card-list">
-                {emergencies.map((item) => renderItemCard(item, true))}
+
+              <div className="cards-stack">
+                {visibleEmergencies.map((item, index) => (
+                  <AttentionCard
+                    key={item.id}
+                    item={item}
+                    isFirstCard={index === 0}
+                    isResolving={activeResolvingId === item.id}
+                    resolveNote={resolveNotes[item.id] || ''}
+                    onNoteChange={(txt) => handleNoteChange(item.id, txt)}
+                    onStartResolve={() => handleStartResolve(item.id)}
+                    onCancelResolve={handleCancelResolve}
+                    onConfirmResolve={() => handleConfirmResolve(item)}
+                    isSaving={savingId === item.id}
+                    saveError={saveErrors[item.id]}
+                    textareaRef={activeResolvingId === item.id ? activeTextareaRef : null}
+                    isFadingOut={fadingItemIds.has(item.id)}
+                  />
+                ))}
               </div>
             </section>
           )}
 
-          {/* Other Items Section */}
-          {others.length > 0 && (
-            <section className="others-group-section">
-              <h2 className="section-title">Other items to check</h2>
-              <div className="attention-card-list">
-                {others.map((item) => renderItemCard(item, false))}
+          {/* Section B: Other Items */}
+          {visibleOthers.length > 0 && (
+            <section className="triage-section others-triage-section">
+              <div className="section-rule-header">
+                <span className="others-rule-title">
+                  {visibleEmergencies.length > 0 ? 'OTHER ITEMS TO CHECK' : 'OPEN ITEMS'}
+                </span>
+                <div className="hairline-rule" />
+              </div>
+
+              <div className="cards-stack">
+                {visibleOthers.map((item, index) => (
+                  <AttentionCard
+                    key={item.id}
+                    item={item}
+                    isFirstCard={visibleEmergencies.length === 0 && index === 0}
+                    isResolving={activeResolvingId === item.id}
+                    resolveNote={resolveNotes[item.id] || ''}
+                    onNoteChange={(txt) => handleNoteChange(item.id, txt)}
+                    onStartResolve={() => handleStartResolve(item.id)}
+                    onCancelResolve={handleCancelResolve}
+                    onConfirmResolve={() => handleConfirmResolve(item)}
+                    isSaving={savingId === item.id}
+                    saveError={saveErrors[item.id]}
+                    textareaRef={activeResolvingId === item.id ? activeTextareaRef : null}
+                    isFadingOut={fadingItemIds.has(item.id)}
+                  />
+                ))}
               </div>
             </section>
           )}
         </main>
       )}
 
-      {/* Recently Resolved Section */}
-      <section className="recently-resolved-wrapper">
+      {/* 4. Collapsible Recently Resolved Section */}
+      <section className="recently-resolved-section">
         <button
           type="button"
           onClick={handleToggleResolved}
-          className="btn btn-secondary btn-toggle-resolved"
+          className="btn-toggle-recently-resolved"
+          aria-expanded={showResolved}
+          aria-controls="recently-resolved-content"
         >
-          {showResolved ? 'Hide resolved' : 'Show recently resolved'}
+          <div className="resolved-button-title">
+            <span>Recently resolved</span>
+            <span className="resolved-counter-pill">{resolvedCount}</span>
+          </div>
+          {showResolved ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
         </button>
 
         {showResolved && (
-          <div className="resolved-panel">
-            <h3 className="resolved-panel-title">Recently Resolved (Latest 20)</h3>
-
+          <div id="recently-resolved-content" className="recently-resolved-tray">
             {loadingResolved && (
-              <p className="loading-resolved-text">Loading resolved items...</p>
+              <p className="tray-status-text">Loading resolved items...</p>
             )}
 
             {resolvedError && (
-              <p className="error-text">{resolvedError}</p>
+              <p className="tray-status-text error-text">{resolvedError}</p>
             )}
 
             {!loadingResolved && !resolvedError && resolvedItems.length === 0 && (
-              <p className="empty-resolved-text">No resolved items found.</p>
+              <p className="tray-status-text">No resolved items yet.</p>
             )}
 
             {!loadingResolved && !resolvedError && resolvedItems.length > 0 && (
-              <div className="resolved-cards-grid">
+              <div className="resolved-rows-list">
                 {resolvedItems.map((item) => (
-                  <div key={item.id} className="card resolved-mini-card">
-                    <div className="resolved-mini-top">
-                      <span className="badge resolved-type-badge">
+                  <article key={item.id} className="resolved-row-item">
+                    <div className="resolved-row-header">
+                      <span className="badge resolved-row-badge">
                         {formatAttentionType(item.type)}
                       </span>
-                      <span className="resolved-time">
-                        {formatIST(item.resolved_at)}
+                      <strong className="resolved-caller-name">{item.callerName}</strong>
+                      <span className="resolved-time-ago">
+                        Resolved {formatTimeAgo(item.resolved_at)}
                       </span>
-                    </div>
-
-                    <div className="resolved-mini-caller">
-                      <strong>{item.callerName}</strong>
-                    </div>
-
-                    <div className="resolved-mini-meta">
-                      Resolved by: <strong>{item.resolverName}</strong>
                     </div>
 
                     {item.note && (
-                      <p className="resolved-mini-note">
-                        <em>Note: {item.note}</em>
-                      </p>
+                      <p className="resolved-row-note">{item.note}</p>
                     )}
-                  </div>
+                  </article>
                 ))}
               </div>
             )}
@@ -504,4 +625,3 @@ export default function NeedsAttention({ currentUserId }) {
     </div>
   )
 }
-
