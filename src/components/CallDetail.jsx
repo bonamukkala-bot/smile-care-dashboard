@@ -1,15 +1,53 @@
 import { useState, useEffect, useRef } from 'react'
 import { useParams, Link } from 'react-router-dom'
+import {
+  ArrowLeft,
+  Phone,
+  Copy,
+  Check,
+  CheckCircle2,
+  Flag,
+  Calendar,
+  Clock,
+  Globe,
+  Activity,
+  FileText,
+  CalendarCheck,
+  ExternalLink,
+  Save,
+  AlertCircle,
+  ChevronDown,
+  ChevronUp,
+} from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import {
   formatIST,
-  formatISTTime,
   formatDuration,
   getPatientNumber,
+  maskPhone,
   getOutcome,
   formatVariableValue,
   formatAttentionType,
+  formatSlotRange,
 } from '../lib/helpers'
+import TranscriptBubbles from './TranscriptBubbles'
+import RecordingPlayer from './RecordingPlayer'
+import ReportIssueCard from './ReportIssueCard'
+import Toast from './Toast'
+
+function getAvatarInitials(name) {
+  if (!name || typeof name !== 'string') return '?'
+  const trimmed = name.trim()
+  if (!trimmed || trimmed.toLowerCase() === 'unknown caller') return '?'
+  const parts = trimmed.split(/\s+/).filter(Boolean)
+  if (parts.length === 1) {
+    const chars = Array.from(parts[0])
+    return (chars[0] || '?').toUpperCase()
+  }
+  const first = Array.from(parts[0])[0] || ''
+  const last = Array.from(parts[parts.length - 1])[0] || ''
+  return (first + last).toUpperCase()
+}
 
 export default function CallDetail({ currentUserId }) {
   const { callId } = useParams()
@@ -22,25 +60,28 @@ export default function CallDetail({ currentUserId }) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
 
-  // Part A: Review state
+  // Review & staff state
   const [review, setReview] = useState(null)
   const [staffMap, setStaffMap] = useState({})
-  const [isEditingNote, setIsEditingNote] = useState(false)
   const [noteInput, setNoteInput] = useState('')
   const [isSavingReview, setIsSavingReview] = useState(false)
+  const [isSavingNote, setIsSavingNote] = useState(false)
   const [reviewError, setReviewError] = useState(null)
 
-  // Part A: Issue reports state
-  const [issueReports, setIssueReports] = useState([])
-  const [isReportingOpen, setIsReportingOpen] = useState(false)
-  const [issueReason, setIssueReason] = useState('')
-  const [isSubmittingIssue, setIsSubmittingIssue] = useState(false)
-  const [issueError, setIssueError] = useState(null)
-  const [issueSuccess, setIssueSuccess] = useState(null)
+  // Summary clamp state
+  const [summaryExpanded, setSummaryExpanded] = useState(false)
 
-  // Part C: Audit log refs (guard against StrictMode double-running)
+  // Copy phone feedback
+  const [copiedPhone, setCopiedPhone] = useState(false)
+
+  // Issues state
+  const [issueReports, setIssueReports] = useState([])
+
+  // Toast state
+  const [toast, setToast] = useState({ message: '', type: 'success' })
+
+  // Audit log refs (guard against double execution in React StrictMode)
   const hasAuditedViewRef = useRef(false)
-  const hasAuditedPlayRef = useRef(false)
 
   // Resolve user id if not provided via props
   useEffect(() => {
@@ -68,7 +109,7 @@ export default function CallDetail({ currentUserId }) {
       setError(null)
 
       try {
-        // Fetch call (WITHOUT raw_payload), turns, attention items, appointment, reviews, and issue reports
+        // Fetch call (WITHOUT raw_payload or full_conversation), turns, attention items, appointment, reviews, and issues
         const [
           callRes,
           turnsRes,
@@ -95,7 +136,7 @@ export default function CallDetail({ currentUserId }) {
             .eq('call_id', callId),
           supabase
             .from('appointments')
-            .select('call_id, patient_name, slot_start, status')
+            .select('id, call_id, patient_name, slot_start, status')
             .eq('call_id', callId)
             .maybeSingle(),
           supabase
@@ -132,7 +173,7 @@ export default function CallDetail({ currentUserId }) {
         }
         setIssueReports(issuesRes.data || [])
 
-        // Collect staff IDs to look up
+        // Collect staff IDs to lookup names
         const staffIds = new Set()
         if (reviewRes.data?.reviewed_by) {
           staffIds.add(reviewRes.data.reviewed_by)
@@ -175,12 +216,11 @@ export default function CallDetail({ currentUserId }) {
     }
   }, [callId])
 
-  // Part C: Audit log for view_call (once per page visit)
+  // Audit log for view_call (once per page visit; NEVER use .select())
   useEffect(() => {
     if (!call || !userId || hasAuditedViewRef.current) return
     hasAuditedViewRef.current = true
 
-    // Insert view_call into audit_log; silently ignore any error; NEVER use .select()
     supabase
       .from('audit_log')
       .insert({
@@ -193,25 +233,19 @@ export default function CallDetail({ currentUserId }) {
       .catch(() => {})
   }, [call, userId])
 
-  // Part C: Audit log for play_recording (once per page visit)
-  const handleAudioPlay = () => {
-    if (hasAuditedPlayRef.current || !userId || !callId) return
-    hasAuditedPlayRef.current = true
-
-    // Insert play_recording into audit_log; silently ignore any error; NEVER use .select()
-    supabase
-      .from('audit_log')
-      .insert({
-        action: 'play_recording',
-        call_id: Number(callId),
-        user_id: userId,
-        details: 'Played recording audio',
-      })
-      .then(() => {})
-      .catch(() => {})
+  // Copy full phone number
+  const handleCopyPhone = async (phone) => {
+    if (!phone || phone === '-') return
+    try {
+      await navigator.clipboard.writeText(phone)
+      setCopiedPhone(true)
+      setTimeout(() => setCopiedPhone(false), 2000)
+    } catch {
+      // Fallback
+    }
   }
 
-  // Part A: Mark reviewed
+  // Mark reviewed
   const handleMarkReviewed = async () => {
     if (!userId) return
     setIsSavingReview(true)
@@ -233,11 +267,12 @@ export default function CallDetail({ currentUserId }) {
         .select()
 
       if (upsertError || !data || data.length === 0) {
-        throw upsertError || new Error('Could not save review.')
+        throw upsertError || new Error('Could not mark as reviewed.')
       }
 
       const saved = data[0]
       setReview(saved)
+      setToast({ message: 'Call marked as reviewed', type: 'success' })
 
       // Ensure staff name is populated in map
       if (!staffMap[userId]) {
@@ -258,10 +293,10 @@ export default function CallDetail({ currentUserId }) {
     }
   }
 
-  // Part A: Add or change note (saving a note also marks the call reviewed)
+  // Save note (saving a note also marks the call as reviewed)
   const handleSaveNote = async () => {
     if (!userId) return
-    setIsSavingReview(true)
+    setIsSavingNote(true)
     setReviewError(null)
 
     try {
@@ -287,7 +322,7 @@ export default function CallDetail({ currentUserId }) {
 
       const saved = data[0]
       setReview(saved)
-      setIsEditingNote(false)
+      setToast({ message: 'Staff note saved', type: 'success' })
 
       if (!staffMap[userId]) {
         const { data: prof } = await supabase
@@ -303,87 +338,46 @@ export default function CallDetail({ currentUserId }) {
       console.error('Failed to save note:', err.message || err)
       setReviewError('Could not save note. Please try again.')
     } finally {
-      setIsSavingReview(false)
+      setIsSavingNote(false)
     }
   }
 
-  // Part A: Report issue
-  const handleReportIssue = async (e) => {
-    e.preventDefault()
-    if (!userId) return
-    const reason = issueReason.trim()
-    if (!reason) {
-      setIssueError('Please enter what went wrong.')
-      return
-    }
-
-    setIsSubmittingIssue(true)
-    setIssueError(null)
-
-    try {
-      const { data, error: insertError } = await supabase
-        .from('issue_reports')
-        .insert({
-          call_id: Number(callId),
-          reported_by: userId,
-          reason,
-          status: 'open',
-        })
-        .select()
-
-      if (insertError || !data || data.length === 0) {
-        throw insertError || new Error('Could not report issue.')
-      }
-
-      const newIssue = data[0]
-      setIssueReports((prev) => [newIssue, ...prev])
-      setIssueSuccess(`Issue reported on ${formatIST(newIssue.created_at)}`)
-      setIssueReason('')
-      setIsReportingOpen(false)
-
-      if (!staffMap[userId]) {
-        const { data: prof } = await supabase
-          .from('staff_profiles')
-          .select('user_id, full_name')
-          .eq('user_id', userId)
-          .maybeSingle()
-        if (prof) {
-          setStaffMap((prev) => ({ ...prev, [prof.user_id]: prof.full_name }))
-        }
-      }
-    } catch (err) {
-      console.error('Failed to report issue:', err.message || err)
-      setIssueError('Could not report issue. Please try again.')
-    } finally {
-      setIsSubmittingIssue(false)
-    }
+  // Toast dismiss helper
+  const handleDismissToast = () => {
+    setToast({ message: '', type: 'success' })
   }
 
+  // Loading skeleton state
   if (loading) {
     return (
-      <div className="page-container">
-        <header className="page-header">
-          <Link to="/calls" className="btn btn-back">
-            ← Back
+      <div className="page-container call-detail-screen">
+        <header className="call-detail-top-nav">
+          <Link to="/calls" className="btn btn-secondary btn-header-back">
+            <ArrowLeft size={17} aria-hidden="true" />
+            <span>Back to Call Log</span>
           </Link>
         </header>
-        <div className="loading-card">
-          <div className="spinner" aria-hidden="true" />
-          <p className="loading-text">Loading call details...</p>
+        <div className="call-detail-skeletons" aria-label="Loading call details">
+          <div className="card skeleton-detail-hero pulse-skeleton" />
+          <div className="card skeleton-detail-body pulse-skeleton" />
+          <div className="card skeleton-detail-body pulse-skeleton" />
         </div>
       </div>
     )
   }
 
+  // Error / Not found state
   if (error || !call) {
     return (
-      <div className="page-container">
-        <header className="page-header">
-          <Link to="/calls" className="btn btn-back">
-            ← Back
+      <div className="page-container call-detail-screen">
+        <header className="call-detail-top-nav">
+          <Link to="/calls" className="btn btn-secondary btn-header-back">
+            <ArrowLeft size={17} aria-hidden="true" />
+            <span>Back to Call Log</span>
           </Link>
         </header>
-        <div className="card error-card">
+        <div className="card error-card" role="alert">
+          <AlertCircle size={32} className="error-icon" aria-hidden="true" />
           <p className="error-text">{error || 'Call not found.'}</p>
           <Link to="/calls" className="btn btn-primary">
             Return to Call Log
@@ -394,78 +388,158 @@ export default function CallDetail({ currentUserId }) {
   }
 
   const patientNumber = getPatientNumber(call)
+  const maskedNumber = maskPhone(patientNumber)
   const callerName = call.variables?.full_name
     ? String(call.variables.full_name)
     : 'Unknown caller'
+  const avatarInitials = getAvatarInitials(callerName)
   const outcome = getOutcome(call, appointment, attentionItems)
   const openAttentionItems = attentionItems.filter((item) => item.status === 'open')
   const variables = call.variables || {}
   const reviewerName = review?.reviewed_by ? staffMap[review.reviewed_by] || 'Staff' : null
+  const summaryText = call.summary && call.summary.trim() ? call.summary.trim() : null
+  const isSummaryLong = summaryText && summaryText.length > 240
 
   return (
-    <div className="page-container">
-      <header className="page-header">
-        <Link to="/calls" className="btn btn-back">
-          ← Back
+    <div className="page-container call-detail-screen">
+      {/* Toast notification banner */}
+      <Toast
+        message={toast.message}
+        type={toast.type}
+        onDismiss={handleDismissToast}
+      />
+
+      {/* Top Navigation Row: Back button */}
+      <header className="call-detail-top-nav">
+        <Link to="/calls" className="btn btn-secondary btn-header-back" title="Back to Call Log">
+          <ArrowLeft size={17} aria-hidden="true" />
+          <span>Back to Call Log</span>
         </Link>
       </header>
 
-      {/* Top Details Card */}
-      <section className="card call-top-card">
-        <div className="top-header-row">
-          <div>
-            <h1 className="detail-caller-name">{callerName}</h1>
-            <div className="phone-row">
-              {patientNumber !== '-' ? (
-                <a
-                  href={`tel:${patientNumber}`}
-                  className="tel-link"
-                  title="Tap to call back"
-                >
-                  📞 {patientNumber}
-                </a>
-              ) : (
-                <span className="tel-link-disabled">No phone number</span>
+      {/* Hero Header Card */}
+      <section className={`card call-hero-card outcome-stripe-${outcome.color}`}>
+        <div className="call-hero-main-row">
+          {/* Avatar with Telugu-safe initials */}
+          <div className="caller-avatar-circle" aria-hidden="true">
+            {avatarInitials}
+          </div>
+
+          {/* Caller information */}
+          <div className="caller-hero-info">
+            <h1 className="caller-hero-name">{callerName}</h1>
+
+            <div className="caller-contact-meta">
+              <span className="caller-phone-mono">{maskedNumber}</span>
+              {patientNumber !== '-' && (
+                <div className="caller-phone-actions">
+                  <button
+                    type="button"
+                    onClick={() => handleCopyPhone(patientNumber)}
+                    className="btn btn-ghost-icon"
+                    title={copiedPhone ? 'Copied!' : 'Copy full phone number'}
+                    aria-label="Copy full phone number"
+                  >
+                    {copiedPhone ? (
+                      <Check size={15} className="text-success" />
+                    ) : (
+                      <Copy size={15} />
+                    )}
+                  </button>
+                  <a
+                    href={`tel:${patientNumber}`}
+                    className="btn btn-ghost-icon"
+                    title="Tap to call back"
+                    aria-label={`Call back ${patientNumber}`}
+                  >
+                    <Phone size={15} />
+                  </a>
+                </div>
               )}
             </div>
+
+            <div className="caller-datetime-row">
+              <Calendar size={14} aria-hidden="true" />
+              <span className="call-datetime-mono">{formatIST(call.started_at)}</span>
+            </div>
           </div>
+
+          {/* Top-right review action on desktop */}
+          <div className="caller-hero-action-desktop">
+            {review ? (
+              <div className="reviewed-badge-pill" role="status">
+                <CheckCircle2 size={16} className="text-success" aria-hidden="true" />
+                <div className="reviewed-pill-text">
+                  <strong>Reviewed</strong>
+                  <span>{reviewerName} • {formatIST(review.reviewed_at)}</span>
+                </div>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={handleMarkReviewed}
+                disabled={isSavingReview}
+                className="btn btn-primary btn-mark-reviewed-hero"
+              >
+                <Check size={18} aria-hidden="true" />
+                <span>{isSavingReview ? 'Saving...' : 'Mark reviewed'}</span>
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Badges Row */}
+        <div className="call-hero-badges-row">
           <span className={`badge outcome-badge outcome-${outcome.color}`}>
             {outcome.label}
           </span>
+          {review && (
+            <span className="badge review-badge-success">
+              <Check size={13} aria-hidden="true" />
+              <span>Reviewed</span>
+            </span>
+          )}
+          {openAttentionItems.length > 0 && (
+            <span className="badge flag-badge-danger">
+              <Flag size={13} aria-hidden="true" />
+              <span>Needs attention ({openAttentionItems.length})</span>
+            </span>
+          )}
         </div>
 
-        <div className="detail-meta-grid">
-          <div className="meta-box">
-            <span className="meta-label">Date & Time</span>
-            <span className="meta-value">{formatIST(call.started_at)}</span>
-          </div>
-          <div className="meta-box">
-            <span className="meta-label">Duration</span>
-            <span className="meta-value">{formatDuration(call.duration_seconds)}</span>
-          </div>
-          <div className="meta-box">
-            <span className="meta-label">Language</span>
-            <span className="meta-value">
-              {formatVariableValue(variables.call_language)}
-            </span>
-          </div>
-          <div className="meta-box">
-            <span className="meta-label">Direction</span>
-            <span className="meta-value capitalize">
-              {call.direction || 'Inbound'}
-            </span>
-          </div>
+        {/* Mobile Full-width Mark Reviewed Button */}
+        <div className="caller-hero-action-mobile">
+          {review ? (
+            <div className="reviewed-badge-pill mobile-full-pill" role="status">
+              <CheckCircle2 size={16} className="text-success" aria-hidden="true" />
+              <div className="reviewed-pill-text">
+                <strong>Reviewed</strong>
+                <span>{reviewerName} • {formatIST(review.reviewed_at)}</span>
+              </div>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={handleMarkReviewed}
+              disabled={isSavingReview}
+              className="btn btn-primary btn-mark-reviewed-mobile"
+            >
+              <Check size={18} aria-hidden="true" />
+              <span>{isSavingReview ? 'Saving...' : 'Mark reviewed'}</span>
+            </button>
+          )}
         </div>
 
-        {/* Red Needs attention box for open attention items */}
+        {/* Open Attention Items Alert Box */}
         {openAttentionItems.length > 0 && (
           <div className="attention-alert-box" role="alert">
             <div className="attention-alert-header">
-              <span className="attention-alert-title">⚠️ Needs attention</span>
+              <Flag size={16} className="text-danger" aria-hidden="true" />
+              <strong className="attention-alert-title">Needs Attention</strong>
             </div>
-            <ul className="attention-item-list">
+            <ul className="attention-alert-items-list">
               {openAttentionItems.map((item, idx) => (
-                <li key={idx} className="attention-item-name">
+                <li key={idx} className="attention-alert-item-name">
                   {formatAttentionType(item.type)}
                 </li>
               ))}
@@ -474,9 +548,205 @@ export default function CallDetail({ currentUserId }) {
         )}
       </section>
 
-      {/* Part A: Review & Quality Section */}
-      <section className="card detail-section-card review-actions-card">
-        <h2 className="section-title">Review & Quality</h2>
+      {/* Summary Card with 4-line clamp and Show More toggle */}
+      <section className="card detail-section-card summary-section-card">
+        <div className="section-title-wrap">
+          <FileText size={20} className="section-title-icon" aria-hidden="true" />
+          <h2 className="section-title">Summary</h2>
+        </div>
+
+        {summaryText ? (
+          <div className="summary-content-wrapper">
+            <p
+              className={`summary-paragraph ${
+                !summaryExpanded && isSummaryLong ? 'summary-clamped' : ''
+              }`}
+            >
+              {summaryText}
+            </p>
+            {isSummaryLong && (
+              <button
+                type="button"
+                onClick={() => setSummaryExpanded((prev) => !prev)}
+                className="btn btn-ghost btn-toggle-summary"
+                aria-expanded={summaryExpanded}
+              >
+                <span>{summaryExpanded ? 'Show less' : 'Show more'}</span>
+                {summaryExpanded ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
+              </button>
+            )}
+          </div>
+        ) : (
+          <p className="empty-summary-text">No summary available for this call.</p>
+        )}
+      </section>
+
+      {/* Audio Recording Card */}
+      <RecordingPlayer
+        recordingUrl={call.recording_url}
+        callId={call.call_id}
+        userId={userId}
+      />
+
+      {/* Details Grid Card (2 cols desktop, 1 col phone) */}
+      <section className="card detail-section-card details-grid-card">
+        <div className="section-title-wrap">
+          <Activity size={20} className="section-title-icon" aria-hidden="true" />
+          <h2 className="section-title">Call & Extracted Details</h2>
+        </div>
+
+        <div className="details-two-col-grid">
+          {/* Call Time */}
+          <div className="detail-stat-box">
+            <span className="stat-box-label">
+              <Clock size={13} aria-hidden="true" />
+              <span>Call Time (IST)</span>
+            </span>
+            <span className="stat-box-value font-mono">{formatIST(call.started_at)}</span>
+          </div>
+
+          {/* Duration */}
+          <div className="detail-stat-box">
+            <span className="stat-box-label">
+              <Clock size={13} aria-hidden="true" />
+              <span>Duration</span>
+            </span>
+            <span className="stat-box-value">{formatDuration(call.duration_seconds)}</span>
+          </div>
+
+          {/* Language */}
+          <div className="detail-stat-box">
+            <span className="stat-box-label">
+              <Globe size={13} aria-hidden="true" />
+              <span>Language</span>
+            </span>
+            <span className="stat-box-value">
+              {formatVariableValue(variables.call_language)}
+            </span>
+          </div>
+
+          {/* Direction */}
+          <div className="detail-stat-box">
+            <span className="stat-box-label">Direction</span>
+            <span className="stat-box-value capitalize">{call.direction || 'Inbound'}</span>
+          </div>
+
+          {/* Status & Hang-up Reason */}
+          <div className="detail-stat-box">
+            <span className="stat-box-label">Status & Hang-up Reason</span>
+            <span className="stat-box-value">
+              {call.status || 'Completed'}
+              {call.hangup_reason
+                ? ` • ${call.hangup_reason}`
+                : call.hangup_source
+                ? ` • ${call.hangup_source}`
+                : ''}
+            </span>
+          </div>
+
+          {/* Sentiment */}
+          <div className="detail-stat-box">
+            <span className="stat-box-label">Sentiment</span>
+            <span className="stat-box-value capitalize">{call.sentiment || '-'}</span>
+          </div>
+
+          {/* Reason for Visit */}
+          <div className="detail-stat-box">
+            <span className="stat-box-label">Reason for Visit</span>
+            <span className="stat-box-value">
+              {formatVariableValue(variables.reason_for_visit)}
+            </span>
+          </div>
+
+          {/* Preferred Time */}
+          <div className="detail-stat-box">
+            <span className="stat-box-label">Preferred Time</span>
+            <span className="stat-box-value">
+              {formatVariableValue(variables.preferred_date_time)}
+            </span>
+          </div>
+
+          {/* Confirmed Slot */}
+          <div className="detail-stat-box">
+            <span className="stat-box-label">Confirmed Slot</span>
+            <span className="stat-box-value">
+              {formatVariableValue(variables.confirmed_slot)}
+            </span>
+          </div>
+
+          {/* Appointment Action */}
+          <div className="detail-stat-box">
+            <span className="stat-box-label">Appointment Action</span>
+            <span className="stat-box-value">
+              {formatVariableValue(variables.appointment_action)}
+            </span>
+          </div>
+
+          {/* Emergency Flag */}
+          <div className="detail-stat-box">
+            <span className="stat-box-label">Emergency Flag</span>
+            <span
+              className={`stat-box-value ${
+                variables.emergency_flag === true ||
+                String(variables.emergency_flag).toLowerCase() === 'true'
+                  ? 'text-danger font-bold'
+                  : ''
+              }`}
+            >
+              {formatVariableValue(variables.emergency_flag)}
+            </span>
+          </div>
+
+          {/* Patient Status (New or Existing) */}
+          <div className="detail-stat-box">
+            <span className="stat-box-label">Patient Status</span>
+            <span className="stat-box-value">
+              {formatVariableValue(variables.patient_status)}
+            </span>
+          </div>
+        </div>
+      </section>
+
+      {/* Linked Booking Card (if appointment exists) */}
+      {appointment && (
+        <section className="card detail-section-card linked-booking-section-card">
+          <div className="linked-booking-inner">
+            <div className="linked-booking-icon-wrap">
+              <CalendarCheck size={24} className="text-success" aria-hidden="true" />
+            </div>
+            <div className="linked-booking-content">
+              <div className="linked-booking-header">
+                <span className="linked-booking-tag">Booking from this call</span>
+                <span className={`badge outcome-badge outcome-green`}>
+                  {appointment.status || 'booked'}
+                </span>
+              </div>
+              <h3 className="linked-booking-patient">{appointment.patient_name || callerName}</h3>
+              <p className="linked-booking-time font-mono">
+                {formatIST(appointment.slot_start)} ({formatSlotRange(appointment.slot_start)})
+              </p>
+            </div>
+            <Link
+              to={`/appointments/${appointment.id}`}
+              className="btn btn-secondary btn-view-linked-booking"
+              title="Open full appointment record"
+            >
+              <span>View Appointment</span>
+              <ExternalLink size={15} aria-hidden="true" />
+            </Link>
+          </div>
+        </section>
+      )}
+
+      {/* Transcript Card (Chat Bubbles) */}
+      <TranscriptBubbles turns={turns} />
+
+      {/* Staff Notes Card */}
+      <section className="card detail-section-card staff-notes-card">
+        <div className="section-title-wrap">
+          <FileText size={20} className="section-title-icon" aria-hidden="true" />
+          <h2 className="section-title">Staff Note</h2>
+        </div>
 
         {reviewError && (
           <div className="alert alert-error" role="alert">
@@ -484,350 +754,46 @@ export default function CallDetail({ currentUserId }) {
           </div>
         )}
 
-        {/* Review Status Display */}
-        {review ? (
-          <div className="reviewed-status-box">
-            <div className="reviewed-banner">
-              <span className="reviewed-icon">✓</span>
-              <span>
-                Reviewed by <strong>{reviewerName}</strong> on{' '}
-                <strong>{formatIST(review.reviewed_at)}</strong>
-              </span>
-            </div>
-
-            {review.note && !isEditingNote && (
-              <div className="saved-note-container">
-                <span className="saved-note-label">Review note:</span>
-                <p className="saved-note-text">{review.note}</p>
-              </div>
-            )}
-
-            {!isEditingNote && (
-              <div className="review-btn-row">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsEditingNote(true)
-                    setNoteInput(review.note || '')
-                  }}
-                  className="btn btn-secondary btn-edit-note"
-                >
-                  {review.note ? 'Change note' : 'Add note'}
-                </button>
-              </div>
-            )}
-          </div>
-        ) : (
-          <div className="not-reviewed-box">
-            <p className="not-reviewed-text">This call has not been reviewed yet.</p>
-            {!isEditingNote && (
-              <div className="review-btn-row">
-                <button
-                  type="button"
-                  onClick={handleMarkReviewed}
-                  disabled={isSavingReview}
-                  className="btn btn-primary btn-mark-reviewed"
-                >
-                  {isSavingReview ? 'Saving...' : 'Mark reviewed'}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsEditingNote(true)
-                    setNoteInput('')
-                  }}
-                  disabled={isSavingReview}
-                  className="btn btn-secondary btn-add-note"
-                >
-                  Add note
-                </button>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Inline Note Editor */}
-        {isEditingNote && (
-          <div className="note-editor-box">
-            <label htmlFor="review-note-input" className="filter-label">
-              Review Note (saving also marks call as reviewed)
-            </label>
-            <textarea
-              id="review-note-input"
-              value={noteInput}
-              onChange={(e) => setNoteInput(e.target.value)}
-              placeholder="e.g. Good handling of cancellation request..."
-              rows={3}
-              className="filter-input review-note-textarea"
-              disabled={isSavingReview}
-            />
-            <div className="note-btn-row">
-              <button
-                type="button"
-                onClick={handleSaveNote}
-                disabled={isSavingReview}
-                className="btn btn-primary btn-save-note"
-              >
-                {isSavingReview ? 'Saving note...' : 'Save note'}
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setIsEditingNote(false)
-                  setNoteInput(review?.note || '')
-                }}
-                disabled={isSavingReview}
-                className="btn btn-secondary"
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* Issue Reporting Divider */}
-        <hr className="section-divider" />
-
-        <div className="issue-reporting-section">
-          <div className="issue-section-top">
-            <h3 className="sub-section-title">Report Issue</h3>
-            {!isReportingOpen && (
-              <button
-                type="button"
-                onClick={() => {
-                  setIsReportingOpen(true)
-                  setIssueError(null)
-                  setIssueSuccess(null)
-                }}
-                className="btn btn-secondary btn-report-issue"
-              >
-                ⚠️ Report issue
-              </button>
-            )}
-          </div>
-
-          {issueSuccess && (
-            <div className="alert alert-success" role="status">
-              ✓ {issueSuccess}
-            </div>
-          )}
-
-          {issueError && (
-            <div className="alert alert-error" role="alert">
-              {issueError}
-            </div>
-          )}
-
-          {/* Issue Reporting Form */}
-          {isReportingOpen && (
-            <form onSubmit={handleReportIssue} className="issue-report-form">
-              <div className="form-field">
-                <label htmlFor="issue-reason" className="filter-label">
-                  What went wrong? <span className="required-mark">*</span>
-                </label>
-                <textarea
-                  id="issue-reason"
-                  required
-                  value={issueReason}
-                  onChange={(e) => setIssueReason(e.target.value)}
-                  placeholder="Describe the issue with the bot response or appointment..."
-                  rows={3}
-                  className="filter-input issue-textarea"
-                  disabled={isSubmittingIssue}
-                />
-              </div>
-
-              <div className="issue-btn-row">
-                <button
-                  type="submit"
-                  disabled={isSubmittingIssue}
-                  className="btn btn-primary btn-submit-issue"
-                >
-                  {isSubmittingIssue ? 'Submitting...' : 'Submit issue'}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setIsReportingOpen(false)}
-                  disabled={isSubmittingIssue}
-                  className="btn btn-secondary"
-                >
-                  Cancel
-                </button>
-              </div>
-            </form>
-          )}
-
-          {/* Existing Issue Reports */}
-          {issueReports.length > 0 && (
-            <div className="issue-reports-list">
-              <h4 className="issue-list-heading">
-                Reported Issues ({issueReports.length})
-              </h4>
-              <div className="issue-cards-wrapper">
-                {issueReports.map((item) => {
-                  const reporter = staffMap[item.reported_by] || 'Staff'
-                  const isClosed = item.status === 'closed'
-                  return (
-                    <div key={item.id} className="issue-item-card">
-                      <div className="issue-item-top">
-                        <span
-                          className={`badge ${
-                            isClosed ? 'status-badge-green' : 'status-badge-orange'
-                          }`}
-                        >
-                          {item.status || 'open'}
-                        </span>
-                        <span className="issue-time">
-                          {formatIST(item.created_at)}
-                        </span>
-                      </div>
-                      <p className="issue-reason-text">{item.reason}</p>
-                      <span className="issue-reporter">
-                        Reported by: <strong>{reporter}</strong>
-                      </span>
-                    </div>
-                  )
-                })}
-              </div>
-            </div>
-          )}
-        </div>
-      </section>
-
-      {/* Summary Card */}
-      <section className="card detail-section-card">
-        <h2 className="section-title">Summary</h2>
-        <p className="summary-text">
-          {call.summary && call.summary.trim() !== ''
-            ? call.summary
-            : 'No summary available for this call.'}
-        </p>
-      </section>
-
-      {/* Extracted Details Card */}
-      <section className="card detail-section-card">
-        <h2 className="section-title">Extracted Details</h2>
-        <div className="extracted-grid">
-          <div className="extracted-row">
-            <span className="extracted-label">Name</span>
-            <span className="extracted-value">
-              {formatVariableValue(variables.full_name)}
+        <div className="notes-editor-form">
+          <label htmlFor="staff-call-note" className="field-label-clean">
+            Internal Staff Note
+          </label>
+          <textarea
+            id="staff-call-note"
+            value={noteInput}
+            onChange={(e) => setNoteInput(e.target.value)}
+            placeholder="Add internal notes about this call, customer mood, follow-up instructions..."
+            rows={3}
+            className="filter-input staff-note-textarea"
+            disabled={isSavingNote}
+          />
+          <div className="note-action-footer">
+            <span className="note-helper-text">
+              Saving a note automatically updates the review status of this call.
             </span>
-          </div>
-          <div className="extracted-row">
-            <span className="extracted-label">New or existing patient</span>
-            <span className="extracted-value">
-              {formatVariableValue(variables.patient_status)}
-            </span>
-          </div>
-          <div className="extracted-row">
-            <span className="extracted-label">Reason for visit</span>
-            <span className="extracted-value">
-              {formatVariableValue(variables.reason_for_visit)}
-            </span>
-          </div>
-          <div className="extracted-row">
-            <span className="extracted-label">Preferred time</span>
-            <span className="extracted-value">
-              {formatVariableValue(variables.preferred_date_time)}
-            </span>
-          </div>
-          <div className="extracted-row">
-            <span className="extracted-label">Appointment action</span>
-            <span className="extracted-value">
-              {formatVariableValue(variables.appointment_action)}
-            </span>
-          </div>
-          <div className="extracted-row">
-            <span className="extracted-label">Confirmed slot</span>
-            <span className="extracted-value">
-              {formatVariableValue(variables.confirmed_slot)}
-            </span>
-          </div>
-          <div className="extracted-row">
-            <span className="extracted-label">Language</span>
-            <span className="extracted-value">
-              {formatVariableValue(variables.call_language)}
-            </span>
-          </div>
-          <div className="extracted-row">
-            <span className="extracted-label">Emergency</span>
-            <span className="extracted-value">
-              {formatVariableValue(variables.emergency_flag)}
-            </span>
-          </div>
-
-          {appointment && (
-            <div className="extracted-row appointment-extracted-row">
-              <span className="extracted-label">Appointment</span>
-              <span className="extracted-value appointment-highlight">
-                Booked for {formatIST(appointment.slot_start)} ({appointment.status})
-              </span>
-            </div>
-          )}
-        </div>
-      </section>
-
-      {/* Recording Card (triggers play_recording audit on play) */}
-      <section className="card detail-section-card">
-        <h2 className="section-title">Recording</h2>
-        {call.recording_url ? (
-          <div className="audio-player-wrapper">
-            <audio
-              controls
-              preload="none"
-              src={call.recording_url}
-              onPlay={handleAudioPlay}
-              className="audio-player"
+            <button
+              type="button"
+              onClick={handleSaveNote}
+              disabled={isSavingNote}
+              className="btn btn-primary btn-save-note-clean"
             >
-              Your browser does not support audio playback.
-            </audio>
+              <Save size={16} aria-hidden="true" />
+              <span>{isSavingNote ? 'Saving note...' : 'Save note'}</span>
+            </button>
           </div>
-        ) : (
-          <p className="no-recording-text">No recording</p>
-        )}
+        </div>
       </section>
 
-      {/* Transcript Card */}
-      <section className="card detail-section-card">
-        <h2 className="section-title">Transcript</h2>
-        {turns.length === 0 ? (
-          <p className="empty-transcript-text">No transcript turns available.</p>
-        ) : (
-          <div className="transcript-list">
-            {turns.map((turn, index) => {
-              const timeString = formatISTTime(turn.turn_time)
-              return (
-                <div key={turn.sequence || index} className="turn-pair">
-                  {turn.user_query && (
-                    <div className="chat-bubble-container caller-side">
-                      <div className="chat-bubble caller-bubble">
-                        <span className="bubble-sender">Caller</span>
-                        <p className="bubble-text">{turn.user_query}</p>
-                        {timeString && (
-                          <span className="bubble-timestamp">{timeString}</span>
-                        )}
-                      </div>
-                    </div>
-                  )}
-
-                  {turn.bot_response && (
-                    <div className="chat-bubble-container bot-side">
-                      <div className="chat-bubble bot-bubble">
-                        <span className="bubble-sender">Receptionist (AI)</span>
-                        <p className="bubble-text">{turn.bot_response}</p>
-                        {timeString && (
-                          <span className="bubble-timestamp">{timeString}</span>
-                        )}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )
-            })}
-          </div>
-        )}
-      </section>
+      {/* Report Issue Card */}
+      <ReportIssueCard
+        callId={call.call_id}
+        userId={userId}
+        issueReports={issueReports}
+        setIssueReports={setIssueReports}
+        staffMap={staffMap}
+        setStaffMap={setStaffMap}
+        onNotify={(msg, type) => setToast({ message: msg, type })}
+      />
     </div>
   )
 }

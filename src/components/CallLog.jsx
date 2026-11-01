@@ -1,16 +1,15 @@
 import { useState, useEffect, useMemo } from 'react'
 import { Link } from 'react-router-dom'
+import { ArrowLeft, PhoneCall, Phone, RefreshCw, AlertCircle } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import {
-  formatIST,
-  formatDuration,
   getPatientNumber,
-  maskPhone,
   getOutcome,
   hasOpenAttention,
   getISTDateKey,
-  formatVariableValue,
 } from '../lib/helpers'
+import CallFilterPanel from './CallFilterPanel'
+import CallCard from './CallCard'
 
 const OUTCOME_OPTIONS = [
   'Emergency',
@@ -21,6 +20,23 @@ const OUTCOME_OPTIONS = [
   'Hung up',
   'Info only',
 ]
+
+function formatGroupDateHeader(dateKey) {
+  if (!dateKey || dateKey === 'unknown') return 'Unknown Date'
+  try {
+    const d = new Date(`${dateKey}T12:00:00+05:30`)
+    if (isNaN(d.getTime())) return dateKey
+    return new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'Asia/Kolkata',
+      weekday: 'long',
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric',
+    }).format(d)
+  } catch {
+    return dateKey
+  }
+}
 
 export default function CallLog() {
   const [calls, setCalls] = useState([])
@@ -41,7 +57,7 @@ export default function CallLog() {
 
     async function fetchCallsData() {
       try {
-        // 1. Fetch latest 200 calls without raw_payload
+        // 1. Fetch latest 200 calls without raw_payload or full_conversation
         const { data: callsData, error: callsError } = await supabase
           .from('calls')
           .select(
@@ -81,7 +97,6 @@ export default function CallLog() {
         if (!isMounted) return
         if (attentionRes.error) throw attentionRes.error
         if (appointmentsRes.error) throw appointmentsRes.error
-        // Note: reviewsRes.error shouldn't block the screen, but check if any
         if (reviewsRes.error) {
           console.error('Failed to load call reviews:', reviewsRes.error.message)
         }
@@ -124,8 +139,12 @@ export default function CallLog() {
 
     fetchCallsData()
 
+    // 60-second periodic refresh
+    const interval = setInterval(fetchCallsData, 60000)
+
     return () => {
       isMounted = false
+      clearInterval(interval)
     }
   }, [reloadKey])
 
@@ -162,13 +181,26 @@ export default function CallLog() {
     setSearchQuery('')
   }
 
-  const hasActiveFilters =
-    Boolean(selectedDate) ||
-    flaggedOnly ||
-    selectedOutcome !== 'all' ||
-    selectedLanguage !== 'all' ||
-    selectedReviewStatus !== 'all' ||
-    Boolean(searchQuery.trim())
+  // Count active filters
+  const activeFilterCount = useMemo(() => {
+    let count = 0
+    if (selectedDate) count++
+    if (flaggedOnly) count++
+    if (selectedOutcome !== 'all') count++
+    if (selectedLanguage !== 'all') count++
+    if (selectedReviewStatus !== 'all') count++
+    if (searchQuery.trim()) count++
+    return count
+  }, [
+    selectedDate,
+    flaggedOnly,
+    selectedOutcome,
+    selectedLanguage,
+    selectedReviewStatus,
+    searchQuery,
+  ])
+
+  const hasActiveFilters = activeFilterCount > 0
 
   // Filtered calls
   const filteredCalls = useMemo(() => {
@@ -242,151 +274,94 @@ export default function CallLog() {
     searchQuery,
   ])
 
+  // Group filtered calls by date for sticky headers
+  const groupedCalls = useMemo(() => {
+    const groups = []
+    const groupMap = new Map()
+
+    for (const call of filteredCalls) {
+      const dateKey = getISTDateKey(call.started_at) || 'unknown'
+      if (!groupMap.has(dateKey)) {
+        const entry = { dateKey, calls: [] }
+        groupMap.set(dateKey, entry)
+        groups.push(entry)
+      }
+      groupMap.get(dateKey).calls.push(call)
+    }
+
+    return groups
+  }, [filteredCalls])
+
   return (
-    <div className="page-container">
-      <header className="page-header">
-        <Link to="/" className="btn btn-back">
-          ← Back
-        </Link>
-        <h1 className="page-heading">Call Log</h1>
+    <div className="page-container call-log-screen">
+      {/* Header Row: Back button, Title, Small call count */}
+      <header className="call-log-header-row">
+        <div className="call-log-header-left">
+          <Link to="/" className="btn btn-secondary btn-header-back" title="Back to Home">
+            <ArrowLeft size={17} aria-hidden="true" />
+            <span>Home</span>
+          </Link>
+          <div className="call-log-title-wrap">
+            <h1 className="page-heading">Call Log</h1>
+            {!loading && (
+              <span className="call-count-badge">
+                {hasActiveFilters
+                  ? `${filteredCalls.length} of ${calls.length} calls`
+                  : `${calls.length} calls`}
+              </span>
+            )}
+          </div>
+        </div>
+
+        <button
+          type="button"
+          onClick={handleRetry}
+          disabled={loading}
+          className="btn btn-secondary btn-refresh-calls"
+          title="Refresh call list"
+          aria-label="Refresh calls"
+        >
+          <RefreshCw size={16} className={loading ? 'spinner-inline' : ''} aria-hidden="true" />
+          <span className="desktop-only-inline">Refresh</span>
+        </button>
       </header>
 
-      {/* Filters bar */}
-      <section className="card filters-card" aria-label="Call Filters">
-        {/* Row 1: Date & Flagged Toggle */}
-        <div className="filter-group date-filter-group">
-          <label htmlFor="date-picker" className="filter-label">
-            Filter by Date
-          </label>
-          <div className="date-input-row">
-            <input
-              id="date-picker"
-              type="date"
-              value={selectedDate}
-              onChange={(e) => setSelectedDate(e.target.value)}
-              className="filter-input date-input"
-            />
-            {selectedDate && (
-              <button
-                type="button"
-                onClick={() => setSelectedDate('')}
-                className="btn btn-secondary filter-btn"
-                title="Clear date"
-              >
-                Clear
-              </button>
-            )}
-          </div>
-        </div>
+      {/* Filter Panel (collapsible on mobile, grid on desktop) */}
+      <CallFilterPanel
+        selectedDate={selectedDate}
+        onDateChange={setSelectedDate}
+        selectedOutcome={selectedOutcome}
+        onOutcomeChange={setSelectedOutcome}
+        outcomeOptions={OUTCOME_OPTIONS}
+        selectedLanguage={selectedLanguage}
+        onLanguageChange={setSelectedLanguage}
+        distinctLanguages={distinctLanguages}
+        selectedReviewStatus={selectedReviewStatus}
+        onReviewStatusChange={setSelectedReviewStatus}
+        searchQuery={searchQuery}
+        onSearchChange={setSearchQuery}
+        flaggedOnly={flaggedOnly}
+        onFlaggedToggle={() => setFlaggedOnly((prev) => !prev)}
+        hasActiveFilters={hasActiveFilters}
+        activeFilterCount={activeFilterCount}
+        onClearAllFilters={handleClearAllFilters}
+      />
 
-        <div className="filter-group toggle-filter-group">
-          <label className="filter-label">Needs Attention</label>
-          <button
-            type="button"
-            onClick={() => setFlaggedOnly((prev) => !prev)}
-            className={`btn toggle-btn ${flaggedOnly ? 'toggle-active' : ''}`}
-            aria-pressed={flaggedOnly}
-          >
-            {flaggedOnly ? '🚩 Flagged only (On)' : 'Flagged only'}
-          </button>
-        </div>
-
-        {/* Row 2: Outcome Filter */}
-        <div className="filter-group">
-          <label htmlFor="outcome-select" className="filter-label">
-            Outcome
-          </label>
-          <select
-            id="outcome-select"
-            value={selectedOutcome}
-            onChange={(e) => setSelectedOutcome(e.target.value)}
-            className="filter-input filter-select"
-          >
-            <option value="all">All Outcomes</option>
-            {OUTCOME_OPTIONS.map((opt) => (
-              <option key={opt} value={opt}>
-                {opt}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        {/* Row 3: Language Filter */}
-        <div className="filter-group">
-          <label htmlFor="language-select" className="filter-label">
-            Language
-          </label>
-          <select
-            id="language-select"
-            value={selectedLanguage}
-            onChange={(e) => setSelectedLanguage(e.target.value)}
-            className="filter-input filter-select"
-          >
-            <option value="all">All Languages</option>
-            {distinctLanguages.map((lang) => (
-              <option key={lang} value={lang}>
-                {lang}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        {/* Row 4: Review Status Filter */}
-        <div className="filter-group">
-          <label htmlFor="review-select" className="filter-label">
-            Review Status
-          </label>
-          <select
-            id="review-select"
-            value={selectedReviewStatus}
-            onChange={(e) => setSelectedReviewStatus(e.target.value)}
-            className="filter-input filter-select"
-          >
-            <option value="all">All Review Status</option>
-            <option value="reviewed">Reviewed</option>
-            <option value="not_reviewed">Not reviewed</option>
-          </select>
-        </div>
-
-        {/* Row 5: Search Filter & Clear All */}
-        <div className="filter-group search-filter-group">
-          <label htmlFor="search-input" className="filter-label">
-            Search Caller or Phone
-          </label>
-          <div className="search-input-row">
-            <input
-              id="search-input"
-              type="text"
-              placeholder="Search by name or number..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="filter-input search-input"
-            />
-            {hasActiveFilters && (
-              <button
-                type="button"
-                onClick={handleClearAllFilters}
-                className="btn btn-secondary btn-clear-all"
-                title="Reset all filters"
-              >
-                Clear all filters
-              </button>
-            )}
-          </div>
-        </div>
-      </section>
-
-      {/* Main Content */}
-      <main className="call-list-section">
+      {/* Main Content Area */}
+      <main className="call-log-main-content">
+        {/* Loading Skeletons */}
         {loading && (
-          <div className="loading-card">
-            <div className="spinner" aria-hidden="true" />
-            <p className="loading-text">Loading calls...</p>
+          <div className="call-list-skeletons" aria-label="Loading call list">
+            {[1, 2, 3, 4].map((i) => (
+              <div key={i} className="card skeleton-call-card pulse-skeleton" />
+            ))}
           </div>
         )}
 
+        {/* Error State */}
         {!loading && error && (
-          <div className="card error-card">
+          <div className="card error-card" role="alert">
+            <AlertCircle size={32} className="error-icon" aria-hidden="true" />
             <p className="error-text">{error}</p>
             <button
               type="button"
@@ -398,85 +373,71 @@ export default function CallLog() {
           </div>
         )}
 
+        {/* Empty States */}
         {!loading && !error && filteredCalls.length === 0 && (
-          <div className="card empty-card">
-            <p className="empty-title">No calls found</p>
-            <p className="empty-subtitle">
-              {calls.length === 0
-                ? 'There are no recorded calls at this time.'
-                : 'Try adjusting your filters.'}
-            </p>
-            {hasActiveFilters && (
-              <button
-                type="button"
-                onClick={handleClearAllFilters}
-                className="btn btn-secondary mt-16"
-              >
-                Clear all filters
-              </button>
+          <div className="card empty-card" role="status">
+            {calls.length === 0 ? (
+              <>
+                <div className="empty-icon-wrap">
+                  <PhoneCall size={38} className="empty-icon-accent" aria-hidden="true" />
+                </div>
+                <h2 className="empty-title">No calls yet</h2>
+                <p className="empty-subtitle">
+                  No telephone calls have been recorded by the system yet.
+                </p>
+              </>
+            ) : (
+              <>
+                <div className="empty-icon-wrap">
+                  <Phone size={38} className="empty-icon-muted" aria-hidden="true" />
+                </div>
+                <h2 className="empty-title">No calls match your filters</h2>
+                <p className="empty-subtitle">
+                  Try clearing some filters or changing your search terms to see more calls.
+                </p>
+                <button
+                  type="button"
+                  onClick={handleClearAllFilters}
+                  className="btn btn-secondary mt-16"
+                >
+                  Clear all filters
+                </button>
+              </>
             )}
           </div>
         )}
 
+        {/* Grouped Call Cards with Sticky Date Headers */}
         {!loading && !error && filteredCalls.length > 0 && (
-          <div className="call-list">
-            {filteredCalls.map((call) => {
-              const fullPhone = getPatientNumber(call)
-              const maskedNumber = maskPhone(fullPhone)
-              const callerName = call.variables?.full_name
-                ? String(call.variables.full_name)
-                : 'Unknown caller'
-              const formattedTime = formatIST(call.started_at)
-              const durationText = formatDuration(call.duration_seconds)
-              const languageText = formatVariableValue(call.variables?.call_language)
-              const outcome = getOutcome(call, call.appointment, call.attentionItems)
-              const hasFlag = hasOpenAttention(call.attentionItems)
-
+          <div className="call-groups-container">
+            {groupedCalls.map((group) => {
+              const formattedDateLabel = formatGroupDateHeader(group.dateKey)
               return (
-                <Link
-                  key={call.call_id}
-                  to={`/calls/${call.call_id}`}
-                  className="card call-card"
+                <section
+                  key={group.dateKey}
+                  className="call-date-group-section"
+                  aria-labelledby={`heading-date-${group.dateKey}`}
                 >
-                  <div className="call-card-top">
-                    <span className="call-time">{formattedTime}</span>
-                    <div className="call-card-badges">
-                      {call.isReviewed && (
-                        <span className="badge review-badge" title="This call has been reviewed">
-                          ✓ Reviewed
-                        </span>
-                      )}
-                      {hasFlag && (
-                        <span className="badge flag-badge">
-                          Needs attention
-                        </span>
-                      )}
-                    </div>
+                  {/* Sticky Date Header */}
+                  <div className="call-group-sticky-header">
+                    <h2
+                      id={`heading-date-${group.dateKey}`}
+                      className="call-group-date-title"
+                    >
+                      {formattedDateLabel}
+                    </h2>
+                    <span className="call-group-count-pill">
+                      {group.calls.length} {group.calls.length === 1 ? 'call' : 'calls'}
+                    </span>
                   </div>
 
-                  <div className="call-card-main">
-                    <h2 className="caller-name">{callerName}</h2>
-                    <span className="masked-phone">{maskedNumber}</span>
+                  {/* Cards List */}
+                  <div className="call-cards-stack">
+                    {group.calls.map((call) => (
+                      <CallCard key={call.call_id} call={call} />
+                    ))}
                   </div>
-
-                  <div className="call-card-bottom">
-                    <div className="call-meta-item">
-                      <span className="meta-label">Duration:</span>
-                      <span className="meta-value">{durationText}</span>
-                    </div>
-                    <div className="call-meta-item">
-                      <span className="meta-label">Language:</span>
-                      <span className="meta-value">{languageText}</span>
-                    </div>
-                    <div className="call-meta-item">
-                      <span
-                        className={`badge outcome-badge outcome-${outcome.color}`}
-                      >
-                        {outcome.label}
-                      </span>
-                    </div>
-                  </div>
-                </Link>
+                </section>
               )
             })}
           </div>

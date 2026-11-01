@@ -5987,4 +5987,1163 @@ input:focus, select:focus, textarea:focus {
   }
 }
 
+/* ==========================================================================
+   CALL LOG (REDESIGNED)
+   ========================================================================== */
+
+.call-log-screen {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+.call-log-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.call-log-header-left {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.call-log-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.call-count-badge {
+  font-size: 14px;
+  font-weight: 700;
+  padding: 4px 12px;
+  border-radius: 999px;
+  background-color: var(--surface-2);
+  color: var(--text-muted);
+  border: 1px solid var(--border-light);
+}
+
+.btn-refresh-calls {
+  min-height: 42px;
+  padding: 0 16px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+}
+
+/* Call Filter Panel Clean Styles */
+.filter-input-with-clear {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+
+.date-picker-clean {
+  width: 100%;
+  padding-right: 32px;
+}
+
+.btn-clear-date-input {
+  position: absolute;
+  right: 8px;
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+  border-radius: 4px;
+  transition: color 0.15s ease;
+}
+
+.btn-clear-date-input:hover {
+  color: var(--text);
+}
+
+.btn-toggle-filter {
+  min-height: 44px;
+  padding: 0 16px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  font-size: 14px;
+  border-radius: var(--radius);
+  background-color: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  width: 100%;
+  justify-content: center;
+}
+
+.btn-toggle-filter:hover {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.btn-toggle-filter.toggle-active {
+  background-color: var(--danger-bg);
+  border-color: var(--danger);
+  color: var(--danger);
+  font-weight: 700;
+}
+
+.icon-flag-active {
+  color: var(--danger);
+}
+
+.icon-flag-muted {
+  color: var(--text-muted);
+}
+
+.btn-clear-filters-full {
+  min-height: 44px;
+  width: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-weight: 600;
+  font-size: 14px;
+}
+
+/* Call Log Main List & Groups */
+.call-log-main-content {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.call-groups-container {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+}
+
+.call-date-group-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.call-group-sticky-header {
+  position: sticky;
+  top: 68px;
+  z-index: 8;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 18px;
+  background-color: rgba(6, 9, 20, 0.85);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius);
+}
+
+[data-theme="light"] .call-group-sticky-header {
+  background-color: rgba(244, 246, 251, 0.88);
+}
+
+.call-group-date-title {
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--text);
+  margin: 0;
+  letter-spacing: 0.2px;
+}
+
+.call-group-count-pill {
+  font-size: 12px;
+  font-weight: 700;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background-color: var(--surface-2);
+  color: var(--text-muted);
+  border: 1px solid var(--border-light);
+}
+
+.call-cards-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* Call Card Modern */
+.call-card-modern {
+  position: relative;
+  border-radius: var(--radius-card);
+  border: 1px solid var(--border);
+  background-color: var(--surface);
+  padding: 18px 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.call-card-modern:hover {
+  transform: translateY(-2px);
+  border-color: var(--accent);
+  box-shadow: var(--shadow-sm);
+}
+
+.call-card-overlay-link {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  text-decoration: none;
+  border-radius: var(--radius-card);
+}
+
+/* Left Outcome Stripes */
+.outcome-stripe-green {
+  border-left: 5px solid var(--success) !important;
+}
+
+.outcome-stripe-orange {
+  border-left: 5px solid var(--warning) !important;
+}
+
+.outcome-stripe-red {
+  border-left: 5px solid var(--danger) !important;
+}
+
+.outcome-stripe-grey,
+.outcome-stripe-blue {
+  border-left: 5px solid var(--accent) !important;
+}
+
+.call-card-header {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.call-card-meta-left {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.call-datetime-mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.call-caller-row {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.call-card-caller-name {
+  font-size: 18px;
+  font-weight: 800;
+  color: var(--text);
+  margin: 0;
+}
+
+.call-phone-mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.call-card-badges-row {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.review-badge-success {
+  background-color: var(--success-bg);
+  border: 1px solid var(--success);
+  color: var(--success);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-weight: 700;
+  font-size: 12px;
+}
+
+.flag-badge-danger {
+  background-color: var(--danger-bg);
+  border: 1px solid var(--danger);
+  color: var(--danger);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-weight: 700;
+  font-size: 12px;
+}
+
+.badge-check-icon,
+.badge-flag-icon {
+  flex-shrink: 0;
+}
+
+/* Call Card Stats Divider */
+.call-card-stats-divider {
+  position: relative;
+  z-index: 2;
+  border-top: 1px solid var(--border-light);
+  padding-top: 12px;
+  display: grid;
+  grid-template-columns: 130px 140px 1fr;
+  gap: 14px;
+  align-items: center;
+}
+
+.call-stat-col {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.call-stat-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--text-muted);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.call-stat-value {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.call-stat-outcome-detail {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Skeletons */
+.call-list-skeletons {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.skeleton-call-card {
+  min-height: 110px;
+  border-radius: var(--radius-card);
+}
+
+/* ==========================================================================
+   CALL DETAIL (REDESIGNED)
+   ========================================================================== */
+
+.call-detail-screen {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+.call-detail-top-nav {
+  display: flex;
+  align-items: center;
+  margin-bottom: 2px;
+}
+
+/* Hero Header Card */
+.call-hero-card {
+  border-radius: var(--radius-card);
+  padding: 26px 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  position: relative;
+}
+
+.call-hero-main-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+
+.caller-avatar-circle {
+  width: 62px;
+  height: 62px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--accent) 0%, var(--primary-to) 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24px;
+  font-weight: 800;
+  color: #ffffff;
+  flex-shrink: 0;
+  box-shadow: var(--shadow-sm);
+}
+
+.caller-hero-info {
+  flex: 1;
+  min-width: 220px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.caller-hero-name {
+  font-size: 26px;
+  font-weight: 800;
+  color: var(--text);
+  margin: 0;
+  line-height: 1.25;
+}
+
+.caller-contact-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.caller-phone-mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-muted);
+}
+
+.caller-phone-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.btn-ghost-icon {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  background-color: var(--surface-2);
+  border: 1px solid var(--border-light);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-ghost-icon:hover {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.caller-datetime-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  color: var(--text-muted);
+}
+
+.caller-hero-action-desktop {
+  display: block;
+}
+
+.caller-hero-action-mobile {
+  display: none;
+}
+
+.btn-mark-reviewed-hero {
+  min-height: 48px;
+  padding: 0 22px;
+  font-size: 15px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.btn-mark-reviewed-mobile {
+  min-height: 48px;
+  width: 100%;
+  font-size: 16px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.reviewed-badge-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 18px;
+  border-radius: var(--radius);
+  background-color: var(--success-bg);
+  border: 1px solid var(--success);
+  color: var(--success);
+}
+
+.reviewed-pill-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 13px;
+  line-height: 1.3;
+}
+
+.reviewed-pill-text strong {
+  font-size: 14px;
+}
+
+.reviewed-pill-text span {
+  font-size: 12px;
+  opacity: 0.9;
+}
+
+.call-hero-badges-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.attention-alert-box {
+  margin-top: 4px;
+  padding: 16px 20px;
+  background-color: var(--danger-bg);
+  border: 1.5px solid var(--danger);
+  border-radius: var(--radius);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.attention-alert-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--danger);
+}
+
+.attention-alert-items-list {
+  margin: 0;
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.attention-alert-item-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+/* Summary Card */
+.summary-section-card {
+  padding: 24px 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.summary-content-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.summary-paragraph {
+  font-size: 16px;
+  line-height: 1.6;
+  color: var(--text);
+  margin: 0;
+}
+
+.summary-clamped {
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.btn-toggle-summary {
+  align-self: flex-start;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--accent);
+  padding: 4px 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.empty-summary-text,
+.empty-recording-text,
+.empty-transcript-text,
+.empty-issues-text {
+  font-size: 15px;
+  color: var(--text-muted);
+  margin: 0;
+}
+
+/* Recording Card */
+.recording-section-card {
+  padding: 24px 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.audio-player-container {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.audio-player-element {
+  width: 100%;
+  min-height: 48px;
+  border-radius: var(--radius);
+  outline: none;
+}
+
+.audio-security-note {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.empty-recording-state {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 16px;
+  background-color: var(--surface-2);
+  border-radius: var(--radius);
+  border: 1px dashed var(--border);
+}
+
+/* Details Grid Card */
+.details-grid-card {
+  padding: 24px 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.details-two-col-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 14px;
+}
+
+.detail-stat-box {
+  background-color: var(--surface-2);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius);
+  padding: 14px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.stat-box-label {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--text-muted);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.stat-box-value {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text);
+  word-break: break-word;
+}
+
+/* Linked Booking Card */
+.linked-booking-section-card {
+  padding: 20px 24px;
+}
+
+.linked-booking-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  flex-wrap: wrap;
+}
+
+.linked-booking-icon-wrap {
+  width: 48px;
+  height: 48px;
+  border-radius: var(--radius);
+  background-color: var(--success-bg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.linked-booking-content {
+  flex: 1;
+  min-width: 220px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.linked-booking-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.linked-booking-tag {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--text-muted);
+}
+
+.linked-booking-patient {
+  font-size: 18px;
+  font-weight: 800;
+  color: var(--text);
+  margin: 0;
+}
+
+.linked-booking-time {
+  font-size: 14px;
+  color: var(--text-muted);
+  margin: 0;
+}
+
+.btn-view-linked-booking {
+  min-height: 44px;
+  padding: 0 18px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+}
+
+/* Transcript Section & Bubbles */
+.transcript-section-card {
+  padding: 24px 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.transcript-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.transcript-header-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.transcript-count-badge {
+  font-size: 13px;
+  font-weight: 700;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background-color: var(--surface-2);
+  color: var(--text-muted);
+  margin-left: 8px;
+  border: 1px solid var(--border-light);
+}
+
+.btn-toggle-transcript {
+  min-height: 40px;
+  padding: 0 14px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.transcript-body {
+  margin-top: 8px;
+}
+
+.transcript-chat-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.transcript-turn-block {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.chat-bubble-row {
+  display: flex;
+  width: 100%;
+}
+
+.bot-bubble-row {
+  justify-content: flex-start;
+}
+
+.caller-bubble-row {
+  justify-content: flex-end;
+}
+
+.chat-bubble {
+  max-width: 80%;
+  border-radius: 18px;
+  padding: 14px 18px;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.bot-bubble {
+  background-color: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-bottom-left-radius: 4px;
+}
+
+.caller-bubble {
+  background-color: rgba(124, 92, 255, 0.16);
+  border: 1px solid rgba(124, 92, 255, 0.35);
+  color: var(--text);
+  border-bottom-right-radius: 4px;
+}
+
+.bubble-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.caller-header {
+  justify-content: flex-end;
+}
+
+.bubble-avatar {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.bot-avatar {
+  background-color: rgba(34, 211, 238, 0.18);
+  color: var(--accent-2);
+}
+
+.caller-avatar {
+  background-color: rgba(124, 92, 255, 0.28);
+  color: var(--accent);
+}
+
+.bubble-sender-name {
+  font-weight: 700;
+  font-size: 12px;
+}
+
+.bubble-time-mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11px;
+}
+
+.bubble-message-text {
+  font-size: 15px;
+  line-height: 1.5;
+  margin: 0;
+  color: var(--text);
+}
+
+/* Staff Notes Card */
+.staff-notes-card {
+  padding: 24px 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.notes-editor-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.staff-note-textarea {
+  width: 100%;
+  min-height: 90px;
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  font-size: 15px;
+  resize: vertical;
+}
+
+.note-action-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.note-helper-text {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.btn-save-note-clean {
+  min-height: 44px;
+  padding: 0 20px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+}
+
+/* Report Issue Card */
+.issue-section-card {
+  padding: 24px 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.issue-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.issue-count-pill {
+  font-size: 12px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background-color: var(--surface-2);
+  color: var(--text-muted);
+  border: 1px solid var(--border-light);
+  margin-left: 8px;
+}
+
+.btn-report-toggle {
+  min-height: 42px;
+  padding: 0 16px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.report-issue-form {
+  padding: 18px 20px;
+  background-color: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.form-field-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.field-label-clean {
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--text-muted);
+}
+
+.issue-textarea-clean {
+  width: 100%;
+  min-height: 80px;
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  font-size: 15px;
+  resize: vertical;
+}
+
+.btn-submit-issue-clean {
+  min-height: 44px;
+  padding: 0 20px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+}
+
+.issues-cards-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.issue-row-card {
+  padding: 16px 18px;
+  background-color: var(--surface-2);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.issue-row-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.issue-date-mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.issue-reason-body {
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--text);
+  margin: 0;
+}
+
+.issue-reporter-footer {
+  font-size: 13px;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.issue-reporter-footer strong {
+  color: var(--text);
+}
+
+.skeleton-detail-body {
+  min-height: 140px;
+  border-radius: var(--radius-card);
+}
+
+/* Mobile Responsiveness for Call Log and Call Detail */
+@media (max-width: 640px) {
+  .call-group-sticky-header {
+    top: 58px;
+  }
+
+  .call-card-stats-divider {
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+
+  .call-stat-col-detail {
+    grid-column: span 2;
+  }
+
+  .caller-hero-action-desktop {
+    display: none;
+  }
+
+  .caller-hero-action-mobile {
+    display: block;
+    width: 100%;
+  }
+
+  .mobile-full-pill {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .details-two-col-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .chat-bubble {
+    max-width: 92%;
+  }
+
+  .call-hero-card,
+  .summary-section-card,
+  .recording-section-card,
+  .details-grid-card,
+  .transcript-section-card,
+  .staff-notes-card,
+  .issue-section-card {
+    padding: 20px 16px;
+  }
+
+  .call-card-modern {
+    padding: 16px;
+  }
+
+  .btn-view-linked-booking {
+    width: 100%;
+    justify-content: center;
+  }
+}
+
+
 
