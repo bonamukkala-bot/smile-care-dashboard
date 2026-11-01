@@ -92,22 +92,27 @@ export default function BookingCard({
         isCancelled ? 'booking-card-cancelled' : ''
       }`}
     >
-      {/* Top area & details wrapped with clickable link overlay to appointment detail */}
-      <div className="booking-card-main-content">
-        <Link
-          to={`/appointments/${appointment.id}`}
-          className="booking-card-title-link"
-          aria-label={`View appointment details for ${patientName}`}
-        >
-          <span className="sr-only">View appointment details for {patientName}</span>
-        </Link>
+      {/* 
+        Accessible stretched link overlay covering the card body.
+        Screen readers announce the accessible description; sighted users do not see text here.
+        All buttons inside the card have position:relative and z-index:2 so they remain clickable.
+      */}
+      <Link
+        to={`/appointments/${appointment.id}`}
+        className="booking-card-overlay-link"
+        aria-label={`View appointment details for ${patientName} at ${timeStart}`}
+      >
+        <span className="visually-hidden">
+          View appointment details for {patientName} at {timeStart}
+        </span>
+      </Link>
 
-        {/* 1. Left Time Block */}
-        <div className="booking-time-block">
-          <span className="booking-time-large">{timeStart}</span>
-          {timeEnd && (
-            <span className="booking-time-end">until {timeEnd}</span>
-          )}
+      {/* Main Grid: Left = Time, Middle = Patient Details, Right = Status */}
+      <div className="booking-card-grid">
+        {/* 1. Left Time Column */}
+        <div className="booking-col-time">
+          <div className="booking-time-large">{timeStart}</div>
+          {timeEnd && <div className="booking-time-end">until {timeEnd}</div>}
 
           {isNextUp && (
             <span className="next-up-pill" role="status">
@@ -124,11 +129,59 @@ export default function BookingCard({
           )}
         </div>
 
-        {/* 2. Center Patient Details */}
-        <div className="booking-patient-block">
-          <div className="booking-patient-header">
-            <h3 className="booking-patient-name">{patientName}</h3>
-            {appointment.call_id && (
+        {/* 2. Middle Patient Details Column */}
+        <div className="booking-col-details">
+          <h3 className="booking-patient-name">{patientName}</h3>
+
+          {hasPhone && (
+            <div className="booking-phone-row">
+              <span className="booking-phone-masked font-mono">{maskedPhoneNumber}</span>
+              <button
+                type="button"
+                onClick={handleCopyPhone}
+                className="btn-phone-copy"
+                title="Copy full phone number"
+                aria-label="Copy phone number"
+              >
+                {copied ? (
+                  <Check size={14} className="copy-check" aria-hidden="true" />
+                ) : (
+                  <Copy size={14} aria-hidden="true" />
+                )}
+              </button>
+              <a
+                href={`tel:${rawPhone}`}
+                className="btn-phone-tel"
+                title="Call patient"
+                aria-label={`Call ${patientName}`}
+              >
+                <Phone size={13} aria-hidden="true" />
+              </a>
+            </div>
+          )}
+
+          {appointment.reason && (
+            <div className="booking-reason-row">
+              <span className="reason-label">Reason:</span>
+              <span className="reason-text">{appointment.reason}</span>
+            </div>
+          )}
+
+          <div className="booking-tags-row">
+            <span className="booking-tag source-tag">
+              {appointment.source === 'ai' && (
+                <Sparkles size={12} className="tag-icon" aria-hidden="true" />
+              )}
+              {sourceLabel}
+            </span>
+            <span className="booking-tag doctor-tag">
+              {formattedDoc}
+            </span>
+          </div>
+
+          {/* Open call link on its own row under tags */}
+          {appointment.call_id && (
+            <div className="booking-call-link-row">
               <Link
                 to={`/calls/${appointment.call_id}`}
                 className="btn btn-ghost btn-open-call"
@@ -138,60 +191,12 @@ export default function BookingCard({
                 <ExternalLink size={14} aria-hidden="true" />
                 <span>Open call</span>
               </Link>
-            )}
-          </div>
-
-          <div className="booking-patient-meta">
-            {hasPhone && (
-              <div className="booking-phone-group">
-                <span className="booking-phone-masked font-mono">{maskedPhoneNumber}</span>
-                <button
-                  type="button"
-                  onClick={handleCopyPhone}
-                  className="btn-phone-copy"
-                  title="Copy full phone number"
-                  aria-label="Copy phone number"
-                >
-                  {copied ? (
-                    <Check size={14} className="copy-check" aria-hidden="true" />
-                  ) : (
-                    <Copy size={14} aria-hidden="true" />
-                  )}
-                </button>
-                <a
-                  href={`tel:${rawPhone}`}
-                  className="btn-phone-tel"
-                  title="Call patient"
-                  aria-label={`Call ${patientName}`}
-                >
-                  <Phone size={13} aria-hidden="true" />
-                </a>
-              </div>
-            )}
-
-            {appointment.reason && (
-              <div className="booking-reason-line">
-                <span className="reason-label">Reason:</span>
-                <span className="reason-text">{appointment.reason}</span>
-              </div>
-            )}
-
-            <div className="booking-tags-row">
-              <span className="booking-tag source-tag">
-                {appointment.source === 'ai' ? (
-                  <Sparkles size={12} className="tag-icon" aria-hidden="true" />
-                ) : null}
-                {sourceLabel}
-              </span>
-              <span className="booking-tag doctor-tag">
-                {formattedDoc}
-              </span>
             </div>
-          </div>
+          )}
         </div>
 
-        {/* 3. Right Status Badge */}
-        <div className="booking-status-badge-col">
+        {/* 3. Right Status Badge Column */}
+        <div className="booking-col-status">
           <span className={`badge status-pill status-pill-${statusColor}`}>
             {renderStatusIcon()}
             <span>{statusLabel}</span>
@@ -339,4 +344,3 @@ export default function BookingCard({
     </article>
   )
 }
-

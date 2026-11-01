@@ -130,6 +130,20 @@
   padding-right: 2px;
 }
 
+/* Accessible visually hidden utility for screen-reader-only text */
+.visually-hidden,
+.sr-only {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  margin: -1px !important;
+  padding: 0 !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
+}
+
 /* Accessible skip-link */
 .skip-link {
   position: absolute;
@@ -3646,7 +3660,7 @@ input:focus, select:focus, textarea:focus {
   padding: 20px 22px;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 16px;
   overflow: hidden;
   transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
 }
@@ -3654,6 +3668,22 @@ input:focus, select:focus, textarea:focus {
 .booking-card-modern:hover {
   border-color: rgba(255, 255, 255, 0.16);
   box-shadow: var(--shadow);
+}
+
+/* Stretched link overlay covering the card body */
+.booking-card-overlay-link {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  text-decoration: none;
+  color: inherit;
+  border-radius: var(--radius-card);
+  outline: none;
+}
+
+.booking-card-overlay-link:focus-visible {
+  outline: 2px solid var(--accent-2) !important;
+  outline-offset: -2px !important;
 }
 
 /* 5px Left Accent Stripe */
@@ -3664,6 +3694,8 @@ input:focus, select:focus, textarea:focus {
   bottom: 0;
   left: 0;
   width: 5px;
+  z-index: 2;
+  pointer-events: none;
 }
 
 .booking-stripe-blue::before,
@@ -3696,24 +3728,16 @@ input:focus, select:focus, textarea:focus {
   opacity: 0.68;
 }
 
-/* Main Content Layout */
-.booking-card-main-content {
-  position: relative;
+/* Main Content Grid: Left = Time, Middle = Patient Details, Right = Status */
+.booking-card-grid {
   display: grid;
-  grid-template-columns: 140px 1fr auto;
-  gap: 18px;
+  grid-template-columns: 140px minmax(0, 1fr) auto;
+  gap: 20px;
   align-items: flex-start;
 }
 
-/* Clickable link to appointment detail */
-.booking-card-title-link {
-  position: absolute;
-  inset: 0;
-  z-index: 1;
-}
-
-/* Time Block */
-.booking-time-block {
+/* 1. Left Time Column */
+.booking-col-time {
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -3768,19 +3792,12 @@ input:focus, select:focus, textarea:focus {
   line-height: 1.3;
 }
 
-/* Center Patient Details */
-.booking-patient-block {
+/* 2. Middle Patient Details Column */
+.booking-col-details {
   display: flex;
   flex-direction: column;
   gap: 8px;
   min-width: 0;
-}
-
-.booking-patient-header {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
 }
 
 .booking-patient-name {
@@ -3790,35 +3807,10 @@ input:focus, select:focus, textarea:focus {
   margin: 0;
   letter-spacing: -0.01em;
   word-break: break-word;
+  line-height: 1.3;
 }
 
-.btn-open-call {
-  position: relative;
-  z-index: 2;
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--accent-2);
-  padding: 3px 8px;
-  border-radius: var(--radius-sm);
-  background-color: var(--info-bg);
-  border: 1px solid rgba(34, 211, 238, 0.25);
-  text-decoration: none;
-}
-
-.btn-open-call:hover {
-  background-color: rgba(34, 211, 238, 0.2);
-}
-
-.booking-patient-meta {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.booking-phone-group {
+.booking-phone-row {
   position: relative;
   z-index: 2;
   display: flex;
@@ -3835,6 +3827,8 @@ input:focus, select:focus, textarea:focus {
 
 .btn-phone-copy,
 .btn-phone-tel {
+  position: relative;
+  z-index: 2;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -3860,10 +3854,11 @@ input:focus, select:focus, textarea:focus {
   color: var(--success);
 }
 
-.booking-reason-line {
+.booking-reason-row {
   font-size: 14px;
   color: var(--text);
   line-height: 1.4;
+  word-break: break-word;
 }
 
 .reason-label {
@@ -3906,7 +3901,44 @@ input:focus, select:focus, textarea:focus {
   border: 1px solid var(--border);
 }
 
-/* Status Pill */
+/* Open Call Link Row (separated under tags, never over the name) */
+.booking-call-link-row {
+  position: relative;
+  z-index: 2;
+  margin-top: 4px;
+}
+
+.btn-open-call {
+  position: relative;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent-2);
+  padding: 5px 12px;
+  border-radius: var(--radius-sm);
+  background-color: var(--info-bg);
+  border: 1px solid rgba(34, 211, 238, 0.25);
+  text-decoration: none;
+  width: fit-content;
+  min-height: 32px;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.btn-open-call:hover {
+  background-color: rgba(34, 211, 238, 0.22);
+  border-color: rgba(34, 211, 238, 0.45);
+}
+
+/* 3. Right Status Badge Column */
+.booking-col-status {
+  display: flex;
+  justify-content: flex-end;
+  align-items: flex-start;
+}
+
 .status-pill {
   display: inline-flex;
   align-items: center;
@@ -3956,6 +3988,8 @@ input:focus, select:focus, textarea:focus {
 
 /* Error Banner in Card */
 .booking-error-banner {
+  position: relative;
+  z-index: 2;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -3970,6 +4004,8 @@ input:focus, select:focus, textarea:focus {
 
 /* Confirm Panel in Card */
 .booking-confirm-panel {
+  position: relative;
+  z-index: 2;
   background-color: var(--surface-2);
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -4016,7 +4052,7 @@ input:focus, select:focus, textarea:focus {
   width: 100%;
 }
 
-/* Actions Row */
+/* 4. Actions Row */
 .booking-actions-row {
   position: relative;
   z-index: 2;
@@ -4090,44 +4126,66 @@ input:focus, select:focus, textarea:focus {
   border-color: var(--danger);
 }
 
-/* Card Mobile Responsive Stacking */
-@media (max-width: 768px) {
-  .booking-card-main-content {
-    grid-template-columns: 1fr;
+/* Card Mobile Responsive Stacking (< 640px) */
+@media (max-width: 640px) {
+  .booking-card-modern {
+    padding: 16px 18px;
     gap: 14px;
   }
 
-  .booking-status-badge-col {
+  .booking-card-grid {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  .booking-col-status {
     order: -1;
-    display: flex;
     justify-content: flex-start;
   }
 
   .booking-actions-row {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 10px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    width: 100%;
   }
 
   .segmented-status-group {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    width: 100%;
+    display: contents;
   }
 
   .btn-segment {
     justify-content: center;
     min-height: 48px;
     font-size: 13px;
-    padding: 0 6px;
+    padding: 0 8px;
+    border-radius: var(--radius);
+    background-color: var(--surface-2);
+    border: 1px solid var(--border);
+    box-sizing: border-box;
+    width: 100%;
+  }
+
+  .btn-segment.segment-active {
+    background-color: var(--surface) !important;
+    border-color: var(--border-light);
   }
 
   .btn-cancel-booking {
     width: 100%;
     justify-content: center;
     min-height: 48px;
+    font-size: 13px;
+    padding: 0 8px;
+    box-sizing: border-box;
+  }
+
+  /* When cancel button is not rendered (already cancelled), span the 3rd button */
+  .booking-card-cancelled .btn-segment:last-child {
+    grid-column: span 2;
   }
 }
+
 
 /* ==========================================================================
    SLOT PICKER (Morning & Evening Chips)
