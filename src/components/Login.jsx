@@ -1,12 +1,14 @@
 import { useState } from 'react'
-import { Eye, EyeOff, Lock } from 'lucide-react'
+import { Eye, EyeOff, Lock, Mail, ArrowRight } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import BrandMark from './BrandMark'
+import LoginArt from './LoginArt'
 
 export default function Login() {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
+  const [forgotPasswordOpen, setForgotPasswordOpen] = useState(false)
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -50,159 +52,196 @@ export default function Login() {
   }
 
   return (
-    <div className="login-page-root">
-      {/* Left Brand Panel (Desktop) */}
-      <div className="login-brand-panel">
-        <div className="login-brand-glow" aria-hidden="true" />
-        <div className="login-brand-content">
-          <div className="login-brand-header">
-            <BrandMark size={44} />
-            <div className="brand-text-block">
-              <span className="brand-title">Smile Care</span>
-              <span className="brand-subtitle">Dental Clinic</span>
-            </div>
-          </div>
+    <div className="login-page">
+      {/* Background Dotted Radial Grid */}
+      <div className="login-grid-bg" aria-hidden="true" />
 
-          {/* Artistic Clean Outlined Tooth SVG */}
-          <div className="login-hero-artwork" aria-hidden="true">
-            <svg
-              width="180"
-              height="180"
-              viewBox="0 0 100 100"
-              fill="none"
-              xmlns="http://www.w3.org/2000/svg"
-              className="login-tooth-svg"
-            >
-              <defs>
-                <linearGradient id="toothGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-                  <stop offset="0%" stopColor="#7C5CFF" />
-                  <stop offset="50%" stopColor="#2A6BFF" />
-                  <stop offset="100%" stopColor="#22D3EE" />
-                </linearGradient>
-                <radialGradient id="toothGlow" cx="50%" cy="40%" r="50%">
-                  <stop offset="0%" stopColor="#7C5CFF" stopOpacity="0.3" />
-                  <stop offset="100%" stopColor="#22D3EE" stopOpacity="0" />
-                </radialGradient>
-              </defs>
-              <circle cx="50" cy="50" r="42" fill="url(#toothGlow)" />
-              {/* Modern Glassy Tooth Path */}
-              <path
-                d="M50 20C36 20 28 27.5 28 38.5C28 48.5 33 59 38 71C40 75.8 44.5 77 48 74.5L50 73L52 74.5C55.5 77 60 75.8 62 71C67 59 72 48.5 72 38.5C72 27.5 64 20 50 20Z"
-                fill="url(#toothGrad)"
-                fillOpacity="0.12"
-                stroke="url(#toothGrad)"
-                strokeWidth="2.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-              {/* Inner smile arc */}
-              <path
-                d="M39 42C43 47 57 47 61 42"
-                stroke="#22D3EE"
-                strokeWidth="2.5"
-                strokeLinecap="round"
-              />
-            </svg>
-          </div>
+      {/* ====================================================================
+          LEFT BRAND PANEL (~45% width, 100vh)
+          ==================================================================== */}
+      <section className="login-brand-panel" aria-label="Smile Care Clinic Branding">
+        {/* Soft Radial Ambient Glow */}
+        <div className="login-panel-glow" aria-hidden="true" />
 
-          <div className="login-headline-group">
-            <h1 className="login-headline">
-              Care that starts with a <span className="accent-serif-word">smile.</span>
+        {/* Top-Left Brand Logo & Clinic Name */}
+        <header className="login-brand-top">
+          <BrandMark size={74} className="login-top-logo" />
+          <div className="login-brand-top-text">
+            <span className="login-brand-name">Smile Care</span>
+            <span className="login-brand-dept">DENTAL CLINIC</span>
+          </div>
+        </header>
+
+        {/* Center Content: 3-line Headline, Subline, and Artwork */}
+        <div className="login-brand-center">
+          <div className="login-headline-wrap">
+            <h1 className="login-hero-headline">
+              <span>Care that</span>
+              <span>starts with</span>
+              <span>
+                a <span className="login-smile-serif">smile.</span>
+              </span>
             </h1>
-            <p className="login-subline">Secure access for your clinic team.</p>
+            <p className="login-hero-subline">
+              <span>Secure access for your</span>
+              <span>clinic team.</span>
+            </p>
+          </div>
+
+          <div className="login-art-container">
+            <LoginArt />
           </div>
         </div>
-      </div>
 
-      {/* Right Login Card Panel */}
-      <div className="login-form-panel">
-        <div className="login-card-container">
-          {/* Mobile brand header */}
-          <div className="login-mobile-brand">
-            <BrandMark size={36} />
-            <div>
-              <span className="brand-title">Smile Care</span>
-              <span className="brand-subtitle">Dental Clinic</span>
-            </div>
+        {/* Bottom-Left: Cyan accent line & Clinic Staff Portal label */}
+        <footer className="login-brand-bottom-left">
+          <span className="login-cyan-line" aria-hidden="true" />
+          <span className="login-clinic-meta">
+            SMILE CARE DENTAL CLINIC · STAFF PORTAL
+          </span>
+        </footer>
+
+        {/* Bottom-Right within panel: 4 stacked uppercase words */}
+        <div className="login-brand-bottom-right" aria-hidden="true">
+          <span>HEALTHIER</span>
+          <span>BRIGHTER</span>
+          <span>HAPPIER</span>
+          <span>TOGETHER</span>
+        </div>
+      </section>
+
+      {/* ====================================================================
+          RIGHT LOGIN PANEL (~55% width)
+          ==================================================================== */}
+      <main className="login-form-panel">
+        {/* Mobile & Tablet Compact Header (< 1024px) */}
+        <header className="login-mobile-header">
+          <BrandMark size={48} />
+          <div className="login-mobile-header-text">
+            <span className="login-mobile-brand-name">Smile Care</span>
+            <span className="login-mobile-brand-dept">DENTAL CLINIC</span>
           </div>
+          <p className="login-mobile-tagline">Secure access for your clinic team.</p>
+        </header>
 
+        {/* Glass Card */}
+        <div className="login-card">
           <div className="login-card-header">
-            <span className="portal-label">STAFF PORTAL</span>
-            <h2 className="login-title">Welcome back</h2>
-            <p className="login-desc">Sign in to manage your clinic.</p>
+            <span className="login-badge-label">STAFF PORTAL</span>
+            <h2 className="login-card-title">Welcome back</h2>
+            <p className="login-card-subline">Sign in to manage your clinic.</p>
           </div>
 
           {error && (
-            <div className="alert alert-error login-alert" role="alert" aria-live="polite">
+            <div className="login-alert-box" role="alert" aria-live="polite">
               {error}
             </div>
           )}
 
-          <form onSubmit={handleSubmit} className="login-form" noValidate>
-            <div className="form-group">
-              <label htmlFor="email" className="form-label">
-                Email
+          <form onSubmit={handleSubmit} className="login-form-body" noValidate>
+            {/* Field 1: Work Email */}
+            <div className="login-field-group">
+              <label htmlFor="email" className="login-field-label">
+                Work email
               </label>
-              <input
-                id="email"
-                name="email"
-                type="email"
-                autoComplete="email"
-                required
-                placeholder="staff@smilecare.com"
-                disabled={loading}
-                className="form-input"
-              />
+              <div className="login-input-wrapper">
+                <Mail className="login-input-icon" size={20} aria-hidden="true" />
+                <input
+                  id="email"
+                  name="email"
+                  type="email"
+                  autoComplete="email"
+                  required
+                  placeholder="staff@smilecare.com"
+                  disabled={loading}
+                  className="login-input"
+                />
+              </div>
             </div>
 
-            <div className="form-group">
-              <label htmlFor="password" className="form-label">
+            {/* Field 2: Password */}
+            <div className="login-field-group">
+              <label htmlFor="password" className="login-field-label">
                 Password
               </label>
-              <div className="password-input-wrap">
+              <div className="login-input-wrapper">
+                <Lock className="login-input-icon" size={20} aria-hidden="true" />
                 <input
                   id="password"
                   name="password"
                   type={showPassword ? 'text' : 'password'}
                   autoComplete="current-password"
                   required
-                  placeholder="••••••••"
+                  placeholder="Enter your password"
                   disabled={loading}
-                  className="form-input password-input"
+                  className="login-input login-input-password"
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword((prev) => !prev)}
-                  className="btn-toggle-password"
+                  className="login-password-toggle-btn"
                   aria-label={showPassword ? 'Hide password' : 'Show password'}
                   aria-pressed={showPassword}
                   disabled={loading}
                 >
-                  {showPassword ? <EyeOff size={19} /> : <Eye size={19} />}
+                  {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
                 </button>
               </div>
             </div>
 
+            {/* Forgot password row */}
+            <div className="login-forgot-row">
+              <button
+                type="button"
+                onClick={() => setForgotPasswordOpen((prev) => !prev)}
+                className="login-forgot-link-btn"
+              >
+                Forgot password?
+              </button>
+            </div>
+
+            {forgotPasswordOpen && (
+              <div className="login-forgot-note" aria-live="polite">
+                Please ask your clinic admin to reset your password.
+              </div>
+            )}
+
+            {/* Submit Button */}
             <button
               type="submit"
               disabled={loading}
-              className="btn btn-primary btn-signin-submit"
+              className="login-submit-button"
             >
-              {loading ? 'Signing in...' : 'Sign in'}
+              {loading ? (
+                <>
+                  <span className="login-spinner" aria-hidden="true" />
+                  <span>Signing in...</span>
+                </>
+              ) : (
+                <>
+                  <span>Sign in</span>
+                  <ArrowRight size={20} aria-hidden="true" />
+                </>
+              )}
             </button>
           </form>
 
-          <div className="login-footer-meta">
-            <div className="security-notice">
-              <Lock size={14} className="security-lock-icon" />
+          {/* Card Footer */}
+          <footer className="login-card-footer">
+            <div className="login-security-badge">
+              <Lock size={15} aria-hidden="true" />
               <span>Your account is protected with secure encryption.</span>
             </div>
-            <p className="login-help-text">
-              Need help? Contact your clinic admin.
-            </p>
-          </div>
+
+            <hr className="login-card-divider" />
+
+            <div className="login-help-row">
+              <span>Need help? </span>
+              <span className="login-admin-text">Contact clinic admin</span>
+            </div>
+          </footer>
         </div>
-      </div>
+      </main>
     </div>
   )
 }
