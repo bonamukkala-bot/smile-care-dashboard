@@ -8,7 +8,7 @@ import {
   hasOpenAttention,
   getISTDateKey,
 } from '../lib/helpers'
-import CallFilterPanel from './CallFilterPanel'
+import FilterPanel from './FilterPanel'
 import CallCard from './CallCard'
 
 const OUTCOME_OPTIONS = [
@@ -327,7 +327,8 @@ export default function CallLog() {
       </header>
 
       {/* Filter Panel (collapsible on mobile, grid on desktop) */}
-      <CallFilterPanel
+      <FilterPanel
+        variant="calllog"
         selectedDate={selectedDate}
         onDateChange={setSelectedDate}
         selectedOutcome={selectedOutcome}
@@ -344,7 +345,7 @@ export default function CallLog() {
         onFlaggedToggle={() => setFlaggedOnly((prev) => !prev)}
         hasActiveFilters={hasActiveFilters}
         activeFilterCount={activeFilterCount}
-        onClearAllFilters={handleClearAllFilters}
+        onClearFilters={handleClearAllFilters}
       />
 
       {/* Main Content Area */}

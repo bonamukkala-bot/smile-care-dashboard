@@ -4742,60 +4742,187 @@ input:focus, select:focus, textarea:focus {
 }
 
 /* ==========================================================================
-   UNIVERSAL FILTER PANEL
+   UNIVERSAL FILTER PANEL (Appointments & Call Log)
    ========================================================================== */
 
+/* Rounded card: radius 20px, surface color, 1px border, padding 20px 24px */
 .filter-panel-card {
-  padding: 16px 20px;
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  border-radius: var(--radius-card);
+  padding: 20px 24px;
+  border-radius: var(--radius-card); /* 20px */
   background-color: var(--surface);
   border: 1px solid var(--border);
-}
-
-.filter-search-row {
   display: flex;
-  align-items: center;
-  gap: 12px;
+  flex-direction: column;
 }
 
+/* Header Area with Clear Filters text button (Shown ONLY when filters are active) */
+.filter-panel-header {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 12px;
+}
+
+.btn-clear-filters-header {
+  background: transparent;
+  border: none;
+  color: var(--accent);
+  font-size: 14px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: var(--radius-sm);
+  transition: opacity 0.15s ease;
+}
+
+.btn-clear-filters-header:hover {
+  text-decoration: underline;
+  opacity: 0.85;
+}
+
+.filter-active-count-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background-color: var(--accent);
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+/* Each control label: uppercase, 12px, letter-spacing 0.08em, font-weight 600, muted color, margin-bottom 8px */
+.filter-control-label {
+  display: block;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  margin-bottom: 8px;
+  white-space: nowrap;
+}
+
+/* Controls: 52px tall, radius 12px, 16px text */
+.filter-cell {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.filter-select-control,
+.filter-input-control {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 52px;
+  height: 52px;
+  border-radius: 12px;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text);
+  background-color: var(--surface-2);
+  border: 1px solid var(--border);
+  padding: 0 14px;
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.filter-select-control:focus-visible,
+.filter-input-control:focus-visible {
+  border-color: var(--accent);
+  outline: 2px solid var(--accent-2);
+  outline-offset: 1px;
+}
+
+/* Search input with magnifier icon inside */
 .filter-search-wrapper {
   position: relative;
-  flex: 1;
+  width: 100%;
   display: flex;
   align-items: center;
 }
 
-.search-field-icon {
+.search-input-control {
+  padding-left: 48px;
+  padding-right: 40px;
+  font-weight: 500;
+}
+
+.filter-search-icon {
   position: absolute;
-  left: 14px;
+  left: 16px;
   color: var(--text-muted);
   pointer-events: none;
 }
 
-.search-input-field {
-  width: 100%;
-  box-sizing: border-box;
-  min-height: 44px;
-  padding-left: 42px;
-  padding-right: 38px;
-  font-size: 14px;
-  font-weight: 500;
+.btn-clear-search-x {
+  position: absolute;
+  right: 12px;
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.btn-clear-search-x:hover {
   color: var(--text);
-  background-color: var(--surface-2);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  transition: border-color 0.15s ease;
 }
 
-.search-input-field:focus {
-  border-color: var(--accent);
-  outline: none;
+/* Real Checkbox for Show cancelled (no label above, vertically centered with inputs) */
+.filter-cell-toggle {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
 }
 
-.btn-clear-search {
+.filter-checkbox-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 52px;
+  height: 52px;
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.filter-real-checkbox {
+  width: 20px;
+  height: 20px;
+  accent-color: var(--accent);
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+.filter-checkbox-text {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+/* Call Log Date Wrapper */
+.filter-date-wrapper {
+  position: relative;
+  width: 100%;
+  display: flex;
+  align-items: center;
+}
+
+.date-picker-control {
+  padding-right: 36px;
+}
+
+.btn-clear-date-input {
   position: absolute;
   right: 10px;
   background: transparent;
@@ -4803,182 +4930,184 @@ input:focus, select:focus, textarea:focus {
   color: var(--text-muted);
   cursor: pointer;
   padding: 4px;
-  border-radius: var(--radius-sm);
   display: inline-flex;
   align-items: center;
   justify-content: center;
 }
 
-.btn-clear-search:hover {
+.btn-clear-date-input:hover {
   color: var(--text);
 }
 
-.filter-mobile-toggle-btn {
-  display: none;
+/* Call Log Flagged Only Button (52px tall, radius 12px) */
+.btn-calllog-flagged-toggle {
+  width: 100%;
+  min-height: 52px;
+  height: 52px;
+  border-radius: 12px;
+  font-size: 15px;
+  font-weight: 700;
+  display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 8px;
-  min-height: 48px;
-  padding: 0 16px;
-  font-weight: 600;
-  font-size: 14px;
-  white-space: nowrap;
-}
-
-.filter-count-badge {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 20px;
-  height: 20px;
-  border-radius: 50%;
-  background-color: var(--accent);
-  color: #ffffff;
-  font-size: 11px;
-  font-weight: 800;
-}
-
-.filter-controls-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)) auto auto;
-  gap: 12px;
-  align-items: flex-end;
-}
-
-.filter-control-item {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  min-width: 0;
-}
-
-.filter-label-clean {
-  font-size: 12px;
-  font-weight: 700;
+  background-color: var(--surface-2);
+  border: 1px solid var(--border);
   color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-
-.filter-select-clean {
-  min-height: 44px;
-  padding: 0 12px;
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--text);
-  background-color: var(--surface-2);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
   cursor: pointer;
+  transition: all 0.15s ease;
 }
 
-.toggle-control-item {
-  justify-content: center;
-}
-
-.toggle-label-clean {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  min-height: 44px;
-  cursor: pointer;
-  user-select: none;
-}
-
-.toggle-switch-wrapper {
-  position: relative;
-  display: inline-block;
-  width: 40px;
-  height: 22px;
-}
-
-.toggle-native-checkbox {
-  opacity: 0;
-  width: 0;
-  height: 0;
-  position: absolute;
-}
-
-.toggle-switch-slider {
-  position: absolute;
-  inset: 0;
-  background-color: var(--surface-2);
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  transition: all 0.2s ease;
-}
-
-.toggle-switch-slider::before {
-  content: '';
-  position: absolute;
-  height: 16px;
-  width: 16px;
-  left: 2px;
-  bottom: 2px;
-  background-color: var(--text-muted);
-  border-radius: 50%;
-  transition: all 0.2s ease;
-}
-
-.toggle-native-checkbox:checked + .toggle-switch-slider {
-  background-color: var(--accent);
+.btn-calllog-flagged-toggle:hover {
   border-color: var(--accent);
-}
-
-.toggle-native-checkbox:checked + .toggle-switch-slider::before {
-  transform: translateX(18px);
-  background-color: #ffffff;
-}
-
-.toggle-text-label {
-  font-size: 14px;
-  font-weight: 600;
   color: var(--text);
-  white-space: nowrap;
 }
 
-.filter-clear-item {
-  display: flex;
-  align-items: center;
+.btn-calllog-flagged-toggle.toggle-active {
+  background-color: var(--danger-bg);
+  border-color: var(--danger);
+  color: var(--danger);
 }
 
-.btn-clear-filters-clean {
-  color: var(--accent-2);
-  font-size: 13px;
-  font-weight: 700;
-  min-height: 44px;
-  padding: 0 12px;
-  white-space: nowrap;
-}
-
-.btn-clear-filters-clean:hover {
-  text-decoration: underline;
-  background-color: var(--info-bg);
-}
-
-@media (max-width: 640px) {
-  .filter-mobile-toggle-btn {
-    display: inline-flex;
+/* Desktop (>= 1024px):
+   Appointments: ONE row: Status (1fr) | Source (1fr) | Doctor (1.3fr) | Search patient or phone (2fr) | Show cancelled toggle (auto)
+   All bottom-aligned (align-items: end), gap 16px.
+   Call Log: 3-column grid with 2 rows.
+*/
+@media (min-width: 1024px) {
+  .filter-phone-top-bar {
+    display: none !important;
   }
 
-  .grid-collapsed {
-    display: none;
+  .desktop-tablet-search-cell {
+    display: flex !important;
   }
 
-  .grid-expanded {
+  .filter-grid-appointments {
+    display: grid !important;
+    grid-template-columns: 1fr 1fr 1.3fr 2fr auto;
+    gap: 16px;
+    align-items: end;
+  }
+
+  .filter-grid-calllog {
+    display: grid !important;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+    align-items: end;
+  }
+}
+
+/* Tablet (640px to 1023px):
+   Appointments: Two columns:
+   Status and Source on first row, Doctor on second row beside toggle, Search spanning full width on its own row at top.
+   Call Log: Two columns.
+*/
+@media (min-width: 640px) and (max-width: 1023px) {
+  .filter-phone-top-bar {
+    display: none !important;
+  }
+
+  .desktop-tablet-search-cell {
+    display: flex !important;
+  }
+
+  .filter-grid-appointments {
+    display: grid !important;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    align-items: end;
+  }
+
+  .filter-cell-search {
+    grid-column: 1 / -1;
+    order: 1;
+  }
+
+  .filter-cell-status {
+    order: 2;
+  }
+
+  .filter-cell-source {
+    order: 3;
+  }
+
+  .filter-cell-doctor {
+    order: 4;
+  }
+
+  .filter-cell-toggle {
+    order: 5;
+  }
+
+  .filter-grid-calllog {
+    display: grid !important;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    align-items: end;
+  }
+
+  .calllog-cell-search {
+    grid-column: 1 / -1;
+  }
+}
+
+/* Phone (< 640px):
+   Search field stays visible above "Filters" button with active-count badge (aria-expanded);
+   Controls collapse; when expanded, stack in 1 column at 48px height.
+*/
+@media (max-width: 639px) {
+  .filter-panel-card {
+    padding: 16px;
+  }
+
+  .desktop-tablet-search-cell {
+    display: none !important;
+  }
+
+  .filter-phone-top-bar {
     display: flex;
     flex-direction: column;
-    gap: 14px;
-    padding-top: 10px;
-    border-top: 1px solid var(--border-light);
+    gap: 10px;
   }
 
-  .filter-select-clean {
+  .filter-mobile-toggle-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
     min-height: 48px;
+    height: 48px;
+    padding: 0 16px;
+    font-size: 15px;
+    font-weight: 600;
     width: 100%;
   }
 
-  .toggle-label-clean {
+  .phone-drawer-closed {
+    display: none !important;
+  }
+
+  .phone-drawer-open {
+    display: flex !important;
+    flex-direction: column;
+    gap: 12px;
+    margin-top: 14px;
+    padding-top: 14px;
+    border-top: 1px solid var(--border-light);
+  }
+
+  .filter-select-control,
+  .filter-input-control,
+  .btn-calllog-flagged-toggle {
     min-height: 48px;
+    height: 48px;
+    font-size: 15px;
+  }
+
+  .filter-checkbox-label {
+    min-height: 48px;
+    height: 48px;
   }
 }
 
