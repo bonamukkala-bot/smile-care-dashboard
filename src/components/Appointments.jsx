@@ -13,6 +13,7 @@ import {
   formatAppointmentStatus,
   getAppointmentStatusColor,
 } from '../lib/helpers'
+import NewBookingModal from './NewBookingModal'
 
 const STATUS_OPTIONS = [
   'booked',
@@ -41,6 +42,23 @@ export default function Appointments() {
   const [filterDoctor, setFilterDoctor] = useState('all')
   const [searchQuery, setSearchQuery] = useState('')
   const [showCancelled, setShowCancelled] = useState(false)
+
+  // New Booking Modal & alert banner
+  const [showNewBooking, setShowNewBooking] = useState(false)
+  const [successMessage, setSuccessMessage] = useState(null)
+
+  useEffect(() => {
+    if (!successMessage) return
+    const timer = setTimeout(() => {
+      setSuccessMessage(null)
+    }, 8000)
+    return () => clearTimeout(timer)
+  }, [successMessage])
+
+  const handleNewBookingSuccess = (msg) => {
+    setSuccessMessage(msg || 'Booking added to the calendar')
+    setReloadKey((prev) => prev + 1)
+  }
 
   // 1. Fetch doctors once on mount
   useEffect(() => {
@@ -351,17 +369,41 @@ export default function Appointments() {
 
   return (
     <div className="page-container">
-      <header className="page-header">
-        <Link to="/" className="btn btn-back">
-          ← Back
-        </Link>
-        <h1 className="page-heading">Appointments</h1>
+      <header className="page-header page-header-with-actions">
+        <div className="header-left">
+          <Link to="/" className="btn btn-back">
+            ← Back
+          </Link>
+          <h1 className="page-heading">Appointments</h1>
+        </div>
+        <button
+          type="button"
+          onClick={() => setShowNewBooking(true)}
+          className="btn btn-primary btn-new-booking"
+        >
+          + New booking
+        </button>
       </header>
 
-      {/* Synchronisation note */}
+      {/* Synchronisation note (Rule 6) */}
       <div className="calendar-sync-notice" role="note">
-        Status changes here do not change Google Calendar yet.
+        Creating, moving and cancelling bookings updates Google Calendar. Arrived, Completed and No-show do not.
       </div>
+
+      {/* Success alert banner */}
+      {successMessage && (
+        <div className="alert alert-success" role="status">
+          <span className="alert-success-text">✓ {successMessage}</span>
+          <button
+            type="button"
+            className="btn-dismiss-alert"
+            onClick={() => setSuccessMessage(null)}
+            aria-label="Dismiss message"
+          >
+            ✕
+          </button>
+        </div>
+      )}
 
       {/* View Toggle Tabs */}
       <section className="view-toggle-bar" aria-label="View Mode">
@@ -731,6 +773,16 @@ export default function Appointments() {
           </div>
         )}
       </main>
+
+      {/* New Booking Modal */}
+      {showNewBooking && (
+        <NewBookingModal
+          isOpen={showNewBooking}
+          onClose={() => setShowNewBooking(false)}
+          onSuccess={handleNewBookingSuccess}
+          initialDate={viewMode === 'day' ? selectedDate : undefined}
+        />
+      )}
     </div>
   )
 }

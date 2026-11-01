@@ -10,7 +10,9 @@ import {
   maskPhone,
   formatAppointmentStatus,
   getAppointmentStatusColor,
+  invokeManageAppointment,
 } from '../lib/helpers'
+import NewBookingModal from './NewBookingModal'
 
 export default function TodayBookings() {
   const [selectedDate, setSelectedDate] = useState(() => getTodayIST())
@@ -26,6 +28,12 @@ export default function TodayBookings() {
   // Confirmation state: { apptId, targetStatus }
   const [confirmState, setConfirmState] = useState(null)
 
+  // Success alert message banner
+  const [successMessage, setSuccessMessage] = useState(null)
+
+  // New Booking Modal state
+  const [showNewBooking, setShowNewBooking] = useState(false)
+
   // Ref to track if saving or waiting for confirmation (for skipping auto-refresh)
   const isBusy = savingId !== null || confirmState !== null
   const isBusyRef = useRef(isBusy)
@@ -33,6 +41,15 @@ export default function TodayBookings() {
   useEffect(() => {
     isBusyRef.current = isBusy
   }, [isBusy])
+
+  // Auto-dismiss success message after 8 seconds
+  useEffect(() => {
+    if (!successMessage) return
+    const timer = setTimeout(() => {
+      setSuccessMessage(null)
+    }, 8000)
+    return () => clearTimeout(timer)
+  }, [successMessage])
 
   // 1. Fetch doctors table once on mount
   useEffect(() => {
@@ -140,7 +157,7 @@ export default function TodayBookings() {
     setConfirmState(null)
   }
 
-  // Status update execution
+  // Regular status update (Arrived, Completed, No-show) - writes directly to appointments.status
   const executeStatusUpdate = async (apptId, newStatus) => {
     setSavingId(apptId)
     setSaveErrors((prev) => ({ ...prev, [apptId]: null }))
@@ -174,6 +191,39 @@ export default function TodayBookings() {
     }
   }
 
+  // Cancel booking action - calls manage-appointment edge function
+  const executeCancelBooking = async (apptId) => {
+    setSavingId(apptId)
+    setSaveErrors((prev) => ({ ...prev, [apptId]: null }))
+    setConfirmState(null)
+
+    try {
+      const res = await invokeManageAppointment({
+        action: 'cancel',
+        appointment_id: Number(apptId),
+      })
+
+      if (res.ok) {
+        setAppointments((prev) =>
+          prev.map((a) => (a.id === apptId ? { ...a, status: 'cancelled' } : a))
+        )
+        setSuccessMessage('Booking cancelled and removed from the calendar')
+      } else {
+        setSaveErrors((prev) => ({
+          ...prev,
+          [apptId]: res.error || 'Could not cancel booking. Please try again.',
+        }))
+      }
+    } catch (err) {
+      setSaveErrors((prev) => ({
+        ...prev,
+        [apptId]: err?.message || 'Could not cancel booking. Please try again.',
+      }))
+    } finally {
+      setSavingId(null)
+    }
+  }
+
   // Status button tap router
   const handleStatusClick = (appt, targetStatus) => {
     if (appt.status === targetStatus) return
@@ -188,6 +238,11 @@ export default function TodayBookings() {
 
   const handleCancelConfirm = () => {
     setConfirmState(null)
+  }
+
+  const handleNewBookingSuccess = (msg) => {
+    setSuccessMessage(msg || 'Booking added to the calendar')
+    setReloadKey((prev) => prev + 1)
   }
 
   // Summary counts
@@ -218,17 +273,41 @@ export default function TodayBookings() {
 
   return (
     <div className="page-container">
-      <header className="page-header">
-        <Link to="/" className="btn btn-back">
-          ← Back
-        </Link>
-        <h1 className="page-heading">Today's Bookings</h1>
+      <header className="page-header page-header-with-actions">
+        <div className="header-left">
+          <Link to="/" className="btn btn-back">
+            ← Back
+          </Link>
+          <h1 className="page-heading">Today's Bookings</h1>
+        </div>
+        <button
+          type="button"
+          onClick={() => setShowNewBooking(true)}
+          className="btn btn-primary btn-new-booking"
+        >
+          + New booking
+        </button>
       </header>
 
-      {/* Notice note at top */}
+      {/* Synchronisation notice (Rule 6) */}
       <div className="calendar-sync-notice" role="note">
-        Changing a status here does not change Google Calendar. The calendar stays the main record.
+        Creating, moving and cancelling bookings updates Google Calendar. Arrived, Completed and No-show do not.
       </div>
+
+      {/* Success alert banner */}
+      {successMessage && (
+        <div className="alert alert-success" role="status">
+          <span className="alert-success-text">✓ {successMessage}</span>
+          <button
+            type="button"
+            className="btn-dismiss-alert"
+            onClick={() => setSuccessMessage(null)}
+            aria-label="Dismiss message"
+          >
+            ✕
+          </button>
+        </div>
+      )}
 
       {/* Date Switcher */}
       <section className="card date-switcher-card" aria-label="Date Navigation">
@@ -396,7 +475,7 @@ export default function TodayBookings() {
                     </div>
                   )}
 
-                  {/* Error Alert if save failed */}
+                  {/* Error Alert if save or cancel failed */}
                   {saveError && (
                     <div className="save-error-notice" role="alert">
                       {saveError}
@@ -411,12 +490,21 @@ export default function TodayBookings() {
                           ? 'Mark as no-show?'
                           : 'Mark as cancelled?'}
                       </p>
+                      {confirmState.targetStatus === 'cancelled' && (
+                        <p className="confirm-subprompt-text">
+                          This will cancel and remove the booking from Google Calendar.
+                        </p>
+                      )}
                       <div className="confirm-btn-row">
                         <button
                           type="button"
-                          onClick={() =>
-                            executeStatusUpdate(appt.id, confirmState.targetStatus)
-                          }
+                          onClick={() => {
+                            if (confirmState.targetStatus === 'cancelled') {
+                              executeCancelBooking(appt.id)
+                            } else {
+                              executeStatusUpdate(appt.id, confirmState.targetStatus)
+                            }
+                          }}
                           disabled={isSaving}
                           className="btn btn-primary btn-confirm-yes"
                         >
@@ -486,6 +574,16 @@ export default function TodayBookings() {
           </div>
         )}
       </main>
+
+      {/* New Booking Modal */}
+      {showNewBooking && (
+        <NewBookingModal
+          isOpen={showNewBooking}
+          onClose={() => setShowNewBooking(false)}
+          onSuccess={handleNewBookingSuccess}
+          initialDate={selectedDate}
+        />
+      )}
     </div>
   )
 }

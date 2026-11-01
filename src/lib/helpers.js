@@ -1,3 +1,5 @@
+import { supabase } from './supabase'
+
 /**
  * Shared helper functions for Smile Care Staff Dashboard
  */
@@ -458,6 +460,170 @@ export function formatTimeAgo(dateInput) {
     return ''
   }
 }
+
+/**
+ * 14 standard clinic slots (30 mins each, 10:00-13:00 and 17:00-20:00 IST)
+ */
+export const CLINIC_SLOTS = [
+  { time: '10:00', label: '10:00 AM' },
+  { time: '10:30', label: '10:30 AM' },
+  { time: '11:00', label: '11:00 AM' },
+  { time: '11:30', label: '11:30 AM' },
+  { time: '12:00', label: '12:00 PM' },
+  { time: '12:30', label: '12:30 PM' },
+  { time: '13:00', label: '1:00 PM' },
+  { time: '17:00', label: '5:00 PM' },
+  { time: '17:30', label: '5:30 PM' },
+  { time: '18:00', label: '6:00 PM' },
+  { time: '18:30', label: '6:30 PM' },
+  { time: '19:00', label: '7:00 PM' },
+  { time: '19:30', label: '7:30 PM' },
+  { time: '20:00', label: '8:00 PM' },
+]
+
+/**
+ * Checks if a given YYYY-MM-DD in IST is Sunday
+ */
+export function isSundayIST(dateStr) {
+  if (!dateStr) return false
+  try {
+    const d = new Date(`${dateStr}T12:00:00+05:30`)
+    return d.getDay() === 0
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Returns today's date in IST if not Sunday, or next Monday if today is Sunday
+ */
+export function getInitialBookingDate() {
+  const today = getTodayIST()
+  if (isSundayIST(today)) {
+    const d = new Date(`${today}T12:00:00+05:30`)
+    d.setDate(d.getDate() + 1)
+    return getISTDateKey(d)
+  }
+  return today
+}
+
+/**
+ * Returns true if a slot on dateStr is in the past
+ */
+export function isSlotInPast(dateStr, slotTime) {
+  try {
+    const slotDate = new Date(`${dateStr}T${slotTime}:00+05:30`)
+    return slotDate.getTime() <= Date.now()
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Extract HH:mm in IST from a timestamptz
+ */
+export function getISTSlotTime(dateInput) {
+  if (!dateInput) return ''
+  try {
+    const d = new Date(dateInput)
+    if (isNaN(d.getTime())) return ''
+    return new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'Asia/Kolkata',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    }).format(d)
+  } catch {
+    return ''
+  }
+}
+
+/**
+ * Format slot to ISO string with India offset, e.g. "2026-11-04T11:30:00+05:30"
+ */
+export function formatSlotStartISO(dateStr, slotTime) {
+  return `${dateStr}T${slotTime}:00+05:30`
+}
+
+/**
+ * Query non-cancelled appointments on dateStr to find taken slots
+ */
+export async function fetchTakenSlotsForDate(dateStr, excludeApptId = null) {
+  if (!dateStr || isSundayIST(dateStr)) return new Set()
+  try {
+    const { startUTC, endUTC } = getISTDateRange(dateStr)
+    const { data, error } = await supabase
+      .from('appointments')
+      .select('id, slot_start, status')
+      .gte('slot_start', startUTC)
+      .lte('slot_start', endUTC)
+      .neq('status', 'cancelled')
+
+    if (error) {
+      console.error('Failed to fetch taken slots:', error.message)
+      return new Set()
+    }
+
+    const taken = new Set()
+    for (const appt of data || []) {
+      if (excludeApptId && String(appt.id) === String(excludeApptId)) {
+        continue
+      }
+      const timeStr = getISTSlotTime(appt.slot_start)
+      if (timeStr) {
+        taken.add(timeStr)
+      }
+    }
+    return taken
+  } catch (err) {
+    console.error('Error in fetchTakenSlotsForDate:', err)
+    return new Set()
+  }
+}
+
+/**
+ * Invoke the manage-appointment Supabase Edge Function
+ */
+export async function invokeManageAppointment(body) {
+  try {
+    const { data, error } = await supabase.functions.invoke('manage-appointment', {
+      body,
+    })
+
+    if (error) {
+      let friendlyMessage = 'Something went wrong. Please try again.'
+      try {
+        if (error.context && typeof error.context.json === 'function') {
+          const bodyJson = await error.context.json()
+          if (bodyJson && bodyJson.error) {
+            friendlyMessage = bodyJson.error
+          }
+        } else if (error.message) {
+          friendlyMessage = error.message
+        }
+      } catch {
+        // Fallback to default message
+      }
+      return { ok: false, error: friendlyMessage }
+    }
+
+    if (!data || data.ok === false) {
+      return {
+        ok: false,
+        error: data?.error || 'Something went wrong. Please try again.',
+        code: data?.code,
+      }
+    }
+
+    return { ok: true, data }
+  } catch (err) {
+    return {
+      ok: false,
+      error: err?.message || 'Something went wrong. Please try again.',
+    }
+  }
+}
+
 
 
 

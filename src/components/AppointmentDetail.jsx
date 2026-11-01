@@ -6,7 +6,9 @@ import {
   formatSlotRange,
   formatAppointmentStatus,
   getAppointmentStatusColor,
+  invokeManageAppointment,
 } from '../lib/helpers'
+import MoveBookingModal from './MoveBookingModal'
 
 export default function AppointmentDetail({ currentUserId }) {
   const { id } = useParams()
@@ -17,14 +19,30 @@ export default function AppointmentDetail({ currentUserId }) {
   const [doctorName, setDoctorName] = useState('Doctor')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  const [reloadKey, setReloadKey] = useState(0)
 
   // Status mutation & confirmation states
   const [isSaving, setIsSaving] = useState(false)
   const [saveError, setSaveError] = useState(null)
   const [confirmTarget, setConfirmTarget] = useState(null) // 'no_show' | 'cancelled' | 'booked' | null
 
+  // Success message banner state
+  const [successMessage, setSuccessMessage] = useState(null)
+
+  // Move Booking Modal state
+  const [showMoveModal, setShowMoveModal] = useState(false)
+
   // Part 6: Audit log once per page visit
   const hasAuditedViewRef = useRef(false)
+
+  // Auto-dismiss success banner
+  useEffect(() => {
+    if (!successMessage) return
+    const timer = setTimeout(() => {
+      setSuccessMessage(null)
+    }, 8000)
+    return () => clearTimeout(timer)
+  }, [successMessage])
 
   // Resolve user id if not provided via props
   useEffect(() => {
@@ -98,7 +116,7 @@ export default function AppointmentDetail({ currentUserId }) {
     return () => {
       isMounted = false
     }
-  }, [id])
+  }, [id, reloadKey])
 
   // Part 6: Audit log for view_appointment (once per page visit)
   useEffect(() => {
@@ -118,7 +136,7 @@ export default function AppointmentDetail({ currentUserId }) {
       .catch(() => {})
   }, [appointment, userId])
 
-  // Status mutation logic
+  // Regular status update (Arrived, Completed, No-show, Set back to Booked)
   const executeStatusUpdate = async (newStatus) => {
     setIsSaving(true)
     setSaveError(null)
@@ -144,6 +162,32 @@ export default function AppointmentDetail({ currentUserId }) {
     }
   }
 
+  // Cancel booking action (calls manage-appointment edge function)
+  const executeCancelBooking = async () => {
+    setIsSaving(true)
+    setSaveError(null)
+    setConfirmTarget(null)
+
+    try {
+      const res = await invokeManageAppointment({
+        action: 'cancel',
+        appointment_id: Number(id),
+      })
+
+      if (res.ok) {
+        setAppointment((prev) => ({ ...prev, status: 'cancelled' }))
+        setSuccessMessage('Booking cancelled and removed from the calendar')
+      } else {
+        setSaveError(res.error || 'Could not cancel booking. Please try again.')
+      }
+    } catch (err) {
+      console.error('Failed to cancel booking:', err)
+      setSaveError(err?.message || 'Could not cancel booking. Please try again.')
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
   // Handle status button click
   const handleStatusButtonClick = (targetStatus) => {
     if (appointment?.status === targetStatus) return
@@ -159,6 +203,11 @@ export default function AppointmentDetail({ currentUserId }) {
     } else {
       executeStatusUpdate(targetStatus)
     }
+  }
+
+  const handleMoveSuccess = (msg) => {
+    setSuccessMessage(msg || 'Booking moved on the calendar')
+    setReloadKey((prev) => prev + 1)
   }
 
   if (loading) {
@@ -202,6 +251,8 @@ export default function AppointmentDetail({ currentUserId }) {
   const dateFormatted = formatIST(appointment.slot_start)
   const sourceLabel = appointment.source === 'ai' ? 'AI booked' : 'Staff'
   const isBooked = appointment.status === 'booked'
+  const isCancelled = appointment.status === 'cancelled'
+  const canMove = appointment.status === 'booked' || appointment.status === 'confirmed'
 
   const getConfirmPromptMessage = () => {
     if (confirmTarget === 'no_show') return 'Mark as no-show?'
@@ -218,10 +269,25 @@ export default function AppointmentDetail({ currentUserId }) {
         </Link>
       </header>
 
-      {/* Synchronisation note */}
+      {/* Synchronisation notice (Rule 6) */}
       <div className="calendar-sync-notice" role="note">
-        Status changes here do not change Google Calendar yet.
+        Creating, moving and cancelling bookings updates Google Calendar. Arrived, Completed and No-show do not.
       </div>
+
+      {/* Success alert banner */}
+      {successMessage && (
+        <div className="alert alert-success" role="status">
+          <span className="alert-success-text">✓ {successMessage}</span>
+          <button
+            type="button"
+            className="btn-dismiss-alert"
+            onClick={() => setSuccessMessage(null)}
+            aria-label="Dismiss message"
+          >
+            ✕
+          </button>
+        </div>
+      )}
 
       {/* Main Appointment Detail Card */}
       <article className="card call-top-card">
@@ -296,6 +362,20 @@ export default function AppointmentDetail({ currentUserId }) {
       <section className="card detail-section-card">
         <h2 className="section-title">Manage Appointment Status</h2>
 
+        {/* Move to another time action button (Rule 2) */}
+        {canMove && (
+          <div className="move-booking-row">
+            <button
+              type="button"
+              onClick={() => setShowMoveModal(true)}
+              disabled={isSaving}
+              className="btn btn-primary btn-move-time"
+            >
+              🗓️ Move to another time
+            </button>
+          </div>
+        )}
+
         {saveError && (
           <div className="alert alert-error" role="alert">
             {saveError}
@@ -306,10 +386,21 @@ export default function AppointmentDetail({ currentUserId }) {
         {confirmTarget && (
           <div className="confirm-action-box" role="alert">
             <p className="confirm-prompt-text">{getConfirmPromptMessage()}</p>
+            {confirmTarget === 'cancelled' && (
+              <p className="confirm-subprompt-text">
+                This will cancel and remove the booking from Google Calendar.
+              </p>
+            )}
             <div className="confirm-btn-row">
               <button
                 type="button"
-                onClick={() => executeStatusUpdate(confirmTarget)}
+                onClick={() => {
+                  if (confirmTarget === 'cancelled') {
+                    executeCancelBooking()
+                  } else {
+                    executeStatusUpdate(confirmTarget)
+                  }
+                }}
                 disabled={isSaving}
                 className="btn btn-primary btn-confirm-yes"
               >
@@ -374,21 +465,38 @@ export default function AppointmentDetail({ currentUserId }) {
           </button>
         </div>
 
-        {/* Undo / Set back to Booked button */}
-        {!isBooked && (
-          <div className="undo-status-row">
-            <button
-              type="button"
-              onClick={() => handleStatusButtonClick('booked')}
-              disabled={isSaving}
-              className="btn btn-secondary btn-undo-booked"
-            >
-              ↺ Set back to Booked
-            </button>
+        {/* Undo / Set back to Booked button OR Cancelled restore hint (Rule 4) */}
+        {isCancelled ? (
+          <div className="cancelled-restore-hint-row">
+            <p className="cancelled-restore-hint-text">
+              To restore this slot, make a new booking.
+            </p>
           </div>
+        ) : (
+          !isBooked && (
+            <div className="undo-status-row">
+              <button
+                type="button"
+                onClick={() => handleStatusButtonClick('booked')}
+                disabled={isSaving}
+                className="btn btn-secondary btn-undo-booked"
+              >
+                ↺ Set back to Booked
+              </button>
+            </div>
+          )
         )}
       </section>
+
+      {/* Move Booking Modal */}
+      {showMoveModal && (
+        <MoveBookingModal
+          isOpen={showMoveModal}
+          onClose={() => setShowMoveModal(false)}
+          onSuccess={handleMoveSuccess}
+          appointment={appointment}
+        />
+      )}
     </div>
   )
 }
-
