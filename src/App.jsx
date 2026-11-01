@@ -9,6 +9,7 @@ import NeedsAttention from './components/NeedsAttention'
 import TodayBookings from './components/TodayBookings'
 import Appointments from './components/Appointments'
 import AppointmentDetail from './components/AppointmentDetail'
+import HealthStrip from './components/HealthStrip'
 import './App.css'
 
 export default function App() {
@@ -147,24 +148,27 @@ export default function App() {
   }
 
   return (
-    <Routes>
-      <Route path="/" element={<Home profile={profile} />} />
-      <Route path="/calls" element={<CallLog />} />
-      <Route
-        path="/calls/:callId"
-        element={<CallDetail currentUserId={session?.user?.id} />}
-      />
-      <Route
-        path="/attention"
-        element={<NeedsAttention currentUserId={session?.user?.id} />}
-      />
-      <Route path="/bookings" element={<TodayBookings />} />
-      <Route path="/appointments" element={<Appointments />} />
-      <Route
-        path="/appointments/:id"
-        element={<AppointmentDetail currentUserId={session?.user?.id} />}
-      />
-      <Route path="*" element={<Navigate to="/" replace />} />
-    </Routes>
+    <>
+      <HealthStrip />
+      <Routes>
+        <Route path="/" element={<Home profile={profile} />} />
+        <Route path="/calls" element={<CallLog />} />
+        <Route
+          path="/calls/:callId"
+          element={<CallDetail currentUserId={session?.user?.id} />}
+        />
+        <Route
+          path="/attention"
+          element={<NeedsAttention currentUserId={session?.user?.id} />}
+        />
+        <Route path="/bookings" element={<TodayBookings />} />
+        <Route path="/appointments" element={<Appointments />} />
+        <Route
+          path="/appointments/:id"
+          element={<AppointmentDetail currentUserId={session?.user?.id} />}
+        />
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    </>
   )
 }

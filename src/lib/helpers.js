@@ -436,4 +436,28 @@ export function formatISTWeekLabel(monStr, sunStr) {
   }
 }
 
+/**
+ * Format relative time ago like "5m ago", "2h ago", "1d ago" or "just now"
+ */
+export function formatTimeAgo(dateInput) {
+  if (!dateInput) return ''
+  try {
+    const time = new Date(dateInput).getTime()
+    if (isNaN(time)) return ''
+    const diff = Math.max(0, Date.now() - time)
+    const minutes = Math.floor(diff / (1000 * 60))
+    const hours = Math.floor(diff / (1000 * 60 * 60))
+    const days = Math.floor(diff / (1000 * 60 * 60 * 24))
+
+    if (minutes < 1) return 'just now'
+    if (minutes < 60) return `${minutes}m ago`
+    if (hours < 24) return `${hours}h ago`
+    if (days === 1) return '1d ago'
+    return `${days}d ago`
+  } catch {
+    return ''
+  }
+}
+
+
 
