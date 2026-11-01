@@ -722,3 +722,55 @@ export function formatSlotEndTime(slotStart) {
   }
 }
 
+
+
+/**
+ * Format plain IST date-time strings (like "2026-11-03 11:00:00" or "2026-11-03T11:00")
+ * directly by parsing date and time components WITHOUT timezone shifts (e.g. "Tue 3 Nov, 11:00 AM").
+ * If parsing fails, returns original string. "NA" or empty returns "-".
+ */
+export function formatPlainISTDateTime(val) {
+  if (!val || typeof val !== 'string') return '-'
+  const str = val.trim()
+  if (!str || str.toUpperCase() === 'NA') return '-'
+
+  const match = str.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})(?:[T\s](\d{1,2}):(\d{2})(?::(\d{2}))?)?/)
+  if (match) {
+    const year = parseInt(match[1], 10)
+    const monthIndex = parseInt(match[2], 10) - 1
+    const day = parseInt(match[3], 10)
+    const hasTime = match[4] !== undefined
+    const hour24 = hasTime ? parseInt(match[4], 10) : 0
+    const minute = hasTime ? parseInt(match[5], 10) : 0
+
+    const utcDate = new Date(Date.UTC(year, monthIndex, day, hour24, minute))
+    if (isNaN(utcDate.getTime())) return str
+
+    const weekday = new Intl.DateTimeFormat('en-GB', { timeZone: 'UTC', weekday: 'short' }).format(utcDate)
+    const dayNum = new Intl.DateTimeFormat('en-GB', { timeZone: 'UTC', day: 'numeric' }).format(utcDate)
+    const monthStr = new Intl.DateTimeFormat('en-GB', { timeZone: 'UTC', month: 'short' }).format(utcDate)
+
+    if (!hasTime) {
+      return `${weekday} ${dayNum} ${monthStr}`
+    }
+
+    const hour12 = hour24 % 12 === 0 ? 12 : hour24 % 12
+    const ampm = hour24 >= 12 ? 'PM' : 'AM'
+    const minutePad = minute < 10 ? `0${minute}` : `${minute}`
+
+    return `${weekday} ${dayNum} ${monthStr}, ${hour12}:${minutePad} ${ampm}`
+  }
+  return str
+}
+
+/**
+ * Get first character of caller name supporting Telugu / multi-byte scripts safely via Array.from().
+ * Returns null if no usable character or unknown caller.
+ */
+export function getAvatarFirstChar(name) {
+  if (!name || typeof name !== 'string') return null
+  const trimmed = name.trim()
+  if (!trimmed || trimmed.toLowerCase() === 'unknown caller') return null
+  const chars = Array.from(trimmed)
+  return chars[0] || null
+}

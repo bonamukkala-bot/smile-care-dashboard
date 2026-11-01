@@ -43,6 +43,7 @@ export default function CallCard({ call }) {
       {/* Accessible stretched link overlay */}
       <Link
         to={`/calls/${call.call_id}`}
+        state={{ fromCallLog: true }}
         className="call-card-overlay-link"
         aria-label={`View call details for ${callerName} on ${formattedTime}`}
       >

@@ -3,7 +3,7 @@ import { MessageSquare, Bot, User, ChevronDown, ChevronUp } from 'lucide-react'
 import { formatISTTime } from '../lib/helpers'
 
 export default function TranscriptBubbles({ turns = [] }) {
-  // Desktop (>= 640px) expanded by default; mobile (< 640px) collapsed by default
+  // Desktop (>= 640px) expanded by default; phone (< 640px) collapsed by default
   const [isExpanded, setIsExpanded] = useState(() => {
     if (typeof window !== 'undefined') {
       return window.innerWidth >= 640
@@ -17,72 +17,81 @@ export default function TranscriptBubbles({ turns = [] }) {
   }, 0)
 
   return (
-    <section className="card detail-section-card transcript-section-card">
-      <header className="transcript-section-header">
-        <div className="transcript-header-title-wrap">
-          <MessageSquare size={20} className="section-title-icon" aria-hidden="true" />
-          <h2 className="section-title">
+    <section className="card call-section-card transcript-card-container" aria-label="Call transcript">
+      {/* Header with Speech Bubble Icon Tile and Message Count */}
+      <header className="transcript-card-header">
+        <div className="transcript-header-left">
+          <div className="section-icon-tile" aria-hidden="true">
+            <MessageSquare size={18} />
+          </div>
+          <h2 className="section-card-title">
             Transcript
-            <span className="transcript-count-badge">
-              {messageCount} {messageCount === 1 ? 'message' : 'messages'}
+            <span className="transcript-count-pill">
+              ({messageCount} {messageCount === 1 ? 'message' : 'messages'})
             </span>
           </h2>
         </div>
 
+        {/* Collapsible toggle for mobile phones (and desktop toggle) */}
         <button
           type="button"
           onClick={() => setIsExpanded((prev) => !prev)}
-          className="btn btn-secondary btn-toggle-transcript"
+          className="btn btn-secondary btn-transcript-toggle"
           aria-expanded={isExpanded}
           aria-label={isExpanded ? 'Collapse transcript' : 'Expand transcript'}
         >
-          <span>{isExpanded ? 'Hide' : 'Show'}</span>
+          <span className="toggle-label-text">{isExpanded ? 'Hide' : 'Show'}</span>
           {isExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
         </button>
       </header>
 
+      {/* Transcript Chat Body */}
       {isExpanded && (
-        <div className="transcript-body">
+        <div className="transcript-chat-body">
           {turns.length === 0 ? (
-            <p className="empty-transcript-text">No transcript messages recorded for this call.</p>
+            <p className="empty-transcript-notice">No transcript available</p>
           ) : (
-            <div className="transcript-chat-list" role="log" aria-label="Call conversation transcript">
+            <div className="transcript-thread" role="log" aria-label="Conversation thread">
               {turns.map((turn, index) => {
                 const timeString = formatISTTime(turn.turn_time)
                 return (
-                  <div key={turn.sequence || index} className="transcript-turn-block">
-                    {/* Bot / Receptionist Response (Left aligned) */}
+                  <div key={turn.sequence || index} className="transcript-turn-pair">
+                    {/* 1. Agent / Receptionist Turn (LEFT) */}
                     {turn.bot_response && (
-                      <div className="chat-bubble-row bot-bubble-row">
-                        <div className="chat-bubble bot-bubble">
-                          <div className="bubble-header">
-                            <span className="bubble-avatar bot-avatar">
-                              <Bot size={14} aria-hidden="true" />
-                            </span>
-                            <span className="bubble-sender-name">Receptionist (AI)</span>
-                            {timeString && (
-                              <span className="bubble-time-mono">{timeString}</span>
-                            )}
+                      <div className="chat-bubble-container agent-side">
+                        <div className="agent-avatar-circle" aria-hidden="true">
+                          <Bot size={15} />
+                        </div>
+                        <div className="bubble-and-meta agent-bubble-and-meta">
+                          <span className="bubble-speaker-label">Receptionist (AI)</span>
+                          <div className="chat-bubble agent-chat-bubble">
+                            <p className="bubble-body-text">{turn.bot_response}</p>
                           </div>
-                          <p className="bubble-message-text">{turn.bot_response}</p>
+                          {timeString && (
+                            <span className="bubble-timestamp-under font-mono">
+                              {timeString}
+                            </span>
+                          )}
                         </div>
                       </div>
                     )}
 
-                    {/* Caller / User Query (Right aligned) */}
+                    {/* 2. Caller Turn (RIGHT) */}
                     {turn.user_query && (
-                      <div className="chat-bubble-row caller-bubble-row">
-                        <div className="chat-bubble caller-bubble">
-                          <div className="bubble-header caller-header">
-                            {timeString && (
-                              <span className="bubble-time-mono">{timeString}</span>
-                            )}
-                            <span className="bubble-sender-name">Caller</span>
-                            <span className="bubble-avatar caller-avatar">
-                              <User size={14} aria-hidden="true" />
-                            </span>
+                      <div className="chat-bubble-container caller-side">
+                        <div className="bubble-and-meta caller-bubble-and-meta">
+                          <span className="bubble-speaker-label caller-label">Caller</span>
+                          <div className="chat-bubble caller-chat-bubble">
+                            <p className="bubble-body-text">{turn.user_query}</p>
                           </div>
-                          <p className="bubble-message-text">{turn.user_query}</p>
+                          {timeString && (
+                            <span className="bubble-timestamp-under caller-time font-mono">
+                              {timeString}
+                            </span>
+                          )}
+                        </div>
+                        <div className="caller-avatar-circle" aria-hidden="true">
+                          <User size={15} />
                         </div>
                       </div>
                     )}
@@ -96,4 +105,3 @@ export default function TranscriptBubbles({ turns = [] }) {
     </section>
   )
 }
-
