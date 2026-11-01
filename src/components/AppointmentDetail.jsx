@@ -7,6 +7,7 @@ import {
   formatAppointmentStatus,
   getAppointmentStatusColor,
   invokeManageAppointment,
+  formatDoctorName,
 } from '../lib/helpers'
 import MoveBookingModal from './MoveBookingModal'
 
@@ -324,7 +325,7 @@ export default function AppointmentDetail({ currentUserId }) {
 
           <div className="meta-box">
             <span className="meta-label">Doctor</span>
-            <span className="meta-value">Dr. {doctorName}</span>
+            <span className="meta-value">{formatDoctorName(doctorName)}</span>
           </div>
 
           <div className="meta-box">

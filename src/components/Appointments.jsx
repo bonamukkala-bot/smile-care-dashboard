@@ -12,6 +12,7 @@ import {
   maskPhone,
   formatAppointmentStatus,
   getAppointmentStatusColor,
+  formatDoctorName,
 } from '../lib/helpers'
 import NewBookingModal from './NewBookingModal'
 
@@ -335,7 +336,7 @@ export default function Appointments() {
         <div className="booking-card-top">
           <div className="time-doctor-group">
             <span className="booking-time-large">{timeRange}</span>
-            <span className="booking-doctor-name">with {doctorName}</span>
+            <span className="booking-doctor-name">with {formatDoctorName(doctorName)}</span>
           </div>
 
           <div className="booking-badge-group">
@@ -596,7 +597,7 @@ export default function Appointments() {
             <option value="all">All Doctors</option>
             {Object.entries(doctors).map(([id, name]) => (
               <option key={id} value={id}>
-                {name}
+                {formatDoctorName(name)}
               </option>
             ))}
           </select>
@@ -695,7 +696,7 @@ export default function Appointments() {
                 <section key={docId} className="doctor-section">
                   <div className="doctor-section-header">
                     <h2 className="doctor-group-heading">
-                      👨‍⚕️ {docName} ({docBookings.length})
+                      👨‍⚕️ {formatDoctorName(docName)} ({docBookings.length})
                     </h2>
                   </div>
                   <div className="bookings-list">

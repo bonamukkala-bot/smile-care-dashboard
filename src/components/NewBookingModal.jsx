@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
+import { X, AlertCircle, Loader2 } from 'lucide-react'
 import {
-  CLINIC_SLOTS,
   getTodayIST,
   isSundayIST,
   getInitialBookingDate,
@@ -9,6 +9,7 @@ import {
   fetchTakenSlotsForDate,
   invokeManageAppointment,
 } from '../lib/helpers'
+import SlotPicker from './SlotPicker'
 
 export default function NewBookingModal({ isOpen, onClose, onSuccess, initialDate }) {
   const [patientName, setPatientName] = useState('')
@@ -24,11 +25,59 @@ export default function NewBookingModal({ isOpen, onClose, onSuccess, initialDat
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [formError, setFormError] = useState(null)
 
+  const nameInputRef = useRef(null)
+  const dialogRef = useRef(null)
+
   const todayIST = getTodayIST()
   const isSunday = isSundayIST(selectedDate)
 
+  // Initial focus and body scroll lock
+  useEffect(() => {
+    if (!isOpen) return
+
+    const originalOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+
+    // Focus first input
+    const timer = setTimeout(() => {
+      nameInputRef.current?.focus()
+    }, 50)
+
+    // Keydown for Escape and Focus Trap
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape' && !isSubmitting) {
+        e.preventDefault()
+        onClose()
+      } else if (e.key === 'Tab' && dialogRef.current) {
+        const focusableElements = dialogRef.current.querySelectorAll(
+          'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+        )
+        if (focusableElements.length === 0) return
+        const first = focusableElements[0]
+        const last = focusableElements[focusableElements.length - 1]
+
+        if (e.shiftKey && document.activeElement === first) {
+          e.preventDefault()
+          last.focus()
+        } else if (!e.shiftKey && document.activeElement === last) {
+          e.preventDefault()
+          first.focus()
+        }
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+
+    return () => {
+      document.body.style.overflow = originalOverflow
+      window.removeEventListener('keydown', handleKeyDown)
+      clearTimeout(timer)
+    }
+  }, [isOpen, isSubmitting, onClose])
+
   // Fetch taken slots when selectedDate changes
   useEffect(() => {
+    if (!isOpen || !selectedDate) return
     let isMounted = true
 
     fetchTakenSlotsForDate(selectedDate).then((taken) => {
@@ -41,21 +90,9 @@ export default function NewBookingModal({ isOpen, onClose, onSuccess, initialDat
     return () => {
       isMounted = false
     }
-  }, [selectedDate])
+  }, [isOpen, selectedDate])
 
   if (!isOpen) return null
-
-  // Available slots for selectedDate:
-  // For today, hide times that already passed.
-  const visibleSlots = CLINIC_SLOTS.filter((slot) => {
-    if (selectedDate === todayIST) {
-      return !isSlotInPast(selectedDate, slot.time)
-    }
-    return true
-  })
-
-  // Has at least one selectable slot
-  const hasAvailableSlot = visibleSlots.some((s) => !takenSlots.has(s.time))
 
   const handleDateChange = (e) => {
     const val = e.target.value
@@ -74,10 +111,10 @@ export default function NewBookingModal({ isOpen, onClose, onSuccess, initialDat
     const trimmedName = patientName.trim()
     if (!trimmedName) {
       setFormError("Please enter the patient's name.")
+      nameInputRef.current?.focus()
       return
     }
 
-    // Phone validation (digits, +, spaces)
     const trimmedPhone = patientPhone.trim()
     if (trimmedPhone) {
       const validChars = /^[\d\s+()-]+$/
@@ -128,159 +165,160 @@ export default function NewBookingModal({ isOpen, onClose, onSuccess, initialDat
       slot_start: slotStartISO,
     }
 
-    const res = await invokeManageAppointment(payload)
+    try {
+      const res = await invokeManageAppointment(payload)
 
-    if (res.ok) {
+      if (res.ok) {
+        setIsSubmitting(false)
+        onSuccess?.('Booking added to the calendar')
+        onClose()
+      } else {
+        setIsSubmitting(false)
+        setFormError(res.error || 'Could not create booking. Please try again.')
+      }
+    } catch (err) {
       setIsSubmitting(false)
-      onSuccess('Booking added to the calendar')
-      onClose()
-    } else {
-      setIsSubmitting(false)
-      setFormError(res.error || 'Could not create booking. Please try again.')
+      setFormError(err?.message || 'Could not create booking. Please try again.')
     }
   }
 
   return (
-    <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="new-booking-title">
-      <div className="modal-content">
-        <header className="modal-header">
-          <h2 id="new-booking-title" className="modal-title">
-            New Appointment Booking
-          </h2>
+    <div
+      className="modal-backdrop-modern"
+      onClick={() => {
+        if (!isSubmitting) onClose()
+      }}
+      role="presentation"
+    >
+      <div
+        ref={dialogRef}
+        className="modal-sheet-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="new-booking-title"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <header className="modal-sheet-header">
+          <div className="sheet-header-title-group">
+            <h2 id="new-booking-title" className="modal-sheet-title">
+              New Appointment Booking
+            </h2>
+            <p className="modal-sheet-subtitle">
+              Schedules an appointment and syncs to Google Calendar.
+            </p>
+          </div>
           <button
             type="button"
             onClick={onClose}
             disabled={isSubmitting}
-            className="btn-modal-close"
+            className="btn-sheet-close"
             aria-label="Close dialog"
           >
-            ✕
+            <X size={20} />
           </button>
         </header>
 
         {formError && (
-          <div className="alert alert-error" role="alert">
-            {formError}
+          <div className="modal-alert-error" role="alert">
+            <AlertCircle size={18} className="alert-error-icon" aria-hidden="true" />
+            <span>{formError}</span>
           </div>
         )}
 
-        <form onSubmit={handleSubmit} className="booking-modal-form" noValidate>
-          {/* Patient Name */}
-          <div className="booking-form-group">
-            <label htmlFor="patient-name-input" className="booking-form-label">
-              Patient Name <span className="required-star">*</span>
-            </label>
-            <input
-              id="patient-name-input"
-              type="text"
-              value={patientName}
-              onChange={(e) => setPatientName(e.target.value)}
-              disabled={isSubmitting}
-              className="booking-form-input"
-              placeholder="e.g. Ramesh Kumar"
-              required
-            />
-          </div>
+        <form onSubmit={handleSubmit} className="modal-sheet-form" noValidate>
+          <div className="modal-scroll-area">
+            {/* Patient Name */}
+            <div className="form-group-modern">
+              <label htmlFor="new-patient-name" className="form-label-modern">
+                Patient Name <span className="required-star">*</span>
+              </label>
+              <input
+                ref={nameInputRef}
+                id="new-patient-name"
+                type="text"
+                value={patientName}
+                onChange={(e) => setPatientName(e.target.value)}
+                disabled={isSubmitting}
+                className="form-input-modern"
+                placeholder="e.g. Ramesh Kumar"
+                required
+              />
+            </div>
 
-          {/* Patient Phone */}
-          <div className="booking-form-group">
-            <label htmlFor="patient-phone-input" className="booking-form-label">
-              Phone Number <span className="optional-hint">(optional)</span>
-            </label>
-            <input
-              id="patient-phone-input"
-              type="tel"
-              value={patientPhone}
-              onChange={(e) => setPatientPhone(e.target.value)}
-              disabled={isSubmitting}
-              className="booking-form-input"
-              placeholder="e.g. +91 98765 43210"
-            />
-          </div>
+            {/* Patient Phone */}
+            <div className="form-group-modern">
+              <label htmlFor="new-patient-phone" className="form-label-modern">
+                Phone Number <span className="optional-tag">(optional)</span>
+              </label>
+              <input
+                id="new-patient-phone"
+                type="tel"
+                value={patientPhone}
+                onChange={(e) => setPatientPhone(e.target.value)}
+                disabled={isSubmitting}
+                className="form-input-modern"
+                placeholder="e.g. +91 98765 43210"
+              />
+            </div>
 
-          {/* Reason */}
-          <div className="booking-form-group">
-            <label htmlFor="patient-reason-input" className="booking-form-label">
-              Reason for Visit <span className="optional-hint">(optional)</span>
-            </label>
-            <input
-              id="patient-reason-input"
-              type="text"
-              value={reason}
-              onChange={(e) => setReason(e.target.value)}
-              disabled={isSubmitting}
-              className="booking-form-input"
-              placeholder="e.g. Root canal consultation, toothache"
-            />
-          </div>
+            {/* Reason */}
+            <div className="form-group-modern">
+              <label htmlFor="new-patient-reason" className="form-label-modern">
+                Reason for Visit <span className="optional-tag">(optional)</span>
+              </label>
+              <input
+                id="new-patient-reason"
+                type="text"
+                value={reason}
+                onChange={(e) => setReason(e.target.value)}
+                disabled={isSubmitting}
+                className="form-input-modern"
+                placeholder="e.g. Toothache, cleaning, consultation"
+              />
+            </div>
 
-          {/* Date Picker */}
-          <div className="booking-form-group">
-            <label htmlFor="booking-date-input" className="booking-form-label">
-              Date <span className="required-star">*</span>
-            </label>
-            <input
-              id="booking-date-input"
-              type="date"
-              min={todayIST}
-              value={selectedDate}
-              onChange={handleDateChange}
-              disabled={isSubmitting}
-              className="booking-form-input date-input"
-              required
-            />
-            {isSunday && (
-              <p className="form-field-warning">
-                ⚠️ Clinic is closed on Sundays (Mon-Sat only). Please choose another day.
-              </p>
+            {/* Date */}
+            <div className="form-group-modern">
+              <label htmlFor="new-booking-date" className="form-label-modern">
+                Date <span className="required-star">*</span>
+              </label>
+              <input
+                id="new-booking-date"
+                type="date"
+                min={todayIST}
+                value={selectedDate}
+                onChange={handleDateChange}
+                disabled={isSubmitting}
+                className="form-input-modern date-input-modern"
+                required
+              />
+              {isSunday && (
+                <p className="form-field-warning" role="alert">
+                  ⚠️ Clinic is closed on Sundays (Mon-Sat only). Please choose another day.
+                </p>
+              )}
+            </div>
+
+            {/* Time Slot Picker */}
+            {!isSunday && (
+              <div className="form-group-modern">
+                <label className="form-label-modern">
+                  Time Slot (IST) <span className="required-star">*</span>
+                </label>
+                <SlotPicker
+                  selectedDate={selectedDate}
+                  selectedTime={selectedTime}
+                  onSelectTime={setSelectedTime}
+                  takenSlots={takenSlots}
+                  loadingSlots={loadingSlots}
+                  disabled={isSubmitting}
+                />
+              </div>
             )}
           </div>
 
-          {/* Time Dropdown */}
-          {!isSunday && (
-            <div className="booking-form-group">
-              <label htmlFor="booking-time-select" className="booking-form-label">
-                Time Slot (IST) <span className="required-star">*</span>
-              </label>
-
-              {loadingSlots ? (
-                <div className="slot-loading-hint">Checking available slots...</div>
-              ) : visibleSlots.length === 0 ? (
-                <p className="form-field-warning">
-                  No remaining slots available today. Please choose a future date.
-                </p>
-              ) : !hasAvailableSlot ? (
-                <p className="form-field-warning">
-                  All slots are booked for this day. Please choose another date.
-                </p>
-              ) : (
-                <select
-                  id="booking-time-select"
-                  value={selectedTime}
-                  onChange={(e) => setSelectedTime(e.target.value)}
-                  disabled={isSubmitting}
-                  className="booking-form-select"
-                  required
-                >
-                  <option value="">-- Choose a time slot --</option>
-                  {visibleSlots.map((slot) => {
-                    const isTaken = takenSlots.has(slot.time)
-                    return (
-                      <option
-                        key={slot.time}
-                        value={slot.time}
-                        disabled={isTaken}
-                      >
-                        {slot.label} {isTaken ? '(Taken)' : ''}
-                      </option>
-                    )
-                  })}
-                </select>
-              )}
-            </div>
-          )}
-
-          <div className="modal-actions-row">
+          {/* Sticky Footer Actions */}
+          <footer className="modal-sheet-footer">
             <button
               type="submit"
               disabled={
@@ -290,19 +328,26 @@ export default function NewBookingModal({ isOpen, onClose, onSuccess, initialDat
                 !selectedTime ||
                 takenSlots.has(selectedTime)
               }
-              className="btn btn-primary btn-submit-booking"
+              className="btn btn-primary btn-submit-sheet"
             >
-              {isSubmitting ? 'Saving booking...' : 'Create Booking'}
+              {isSubmitting ? (
+                <>
+                  <Loader2 size={18} className="spinner-inline" aria-hidden="true" />
+                  <span>Saving booking...</span>
+                </>
+              ) : (
+                'Create Booking'
+              )}
             </button>
             <button
               type="button"
               onClick={onClose}
               disabled={isSubmitting}
-              className="btn btn-secondary btn-cancel-modal"
+              className="btn btn-secondary btn-cancel-sheet"
             >
               Cancel
             </button>
-          </div>
+          </footer>
         </form>
       </div>
     </div>

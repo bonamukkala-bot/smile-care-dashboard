@@ -1,18 +1,30 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
 import { Link } from 'react-router-dom'
+import {
+  Plus,
+  ArrowLeft,
+  Info,
+  X,
+  CalendarCheck,
+  CalendarOff,
+  AlertCircle,
+} from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import {
   getTodayIST,
   getISTDateRange,
   getISTDateKey,
   formatISTDateLabel,
-  formatISTTimeShort,
-  maskPhone,
-  formatAppointmentStatus,
-  getAppointmentStatusColor,
+  isSundayIST,
+  formatDoctorName,
   invokeManageAppointment,
 } from '../lib/helpers'
+import DayNavigator from './DayNavigator'
+import BookingCard from './BookingCard'
 import NewBookingModal from './NewBookingModal'
+import Toast from './Toast'
+
+const HIDE_SYNC_BANNER_KEY = 'smile_care_hide_booking_sync_banner'
 
 export default function TodayBookings() {
   const [selectedDate, setSelectedDate] = useState(() => getTodayIST())
@@ -22,19 +34,31 @@ export default function TodayBookings() {
   const [error, setError] = useState(null)
   const [reloadKey, setReloadKey] = useState(0)
 
-  // Status mutation state per card
-  const [savingId, setSavingId] = useState(null)
-  const [saveErrors, setSaveErrors] = useState({})
-  // Confirmation state: { apptId, targetStatus }
-  const [confirmState, setConfirmState] = useState(null)
+  // Status filter chip state
+  const [activeFilter, setActiveFilter] = useState('all') // 'all' | 'upcoming' | 'arrived' | 'completed' | 'no_show' | 'cancelled'
 
-  // Success alert message banner
-  const [successMessage, setSuccessMessage] = useState(null)
+  // Sync banner visibility from localStorage
+  const [showSyncBanner, setShowSyncBanner] = useState(() => {
+    try {
+      return localStorage.getItem(HIDE_SYNC_BANNER_KEY) !== 'true'
+    } catch {
+      return true
+    }
+  })
+
+  // Status mutation states per card
+  const [savingId, setSavingId] = useState(null)
+  const [savingTarget, setSavingTarget] = useState(null)
+  const [saveErrors, setSaveErrors] = useState({})
+  const [confirmState, setConfirmState] = useState(null) // { apptId, targetStatus }
+
+  // Shared toast state
+  const [toast, setToast] = useState(null) // { message, type }
 
   // New Booking Modal state
   const [showNewBooking, setShowNewBooking] = useState(false)
 
-  // Ref to track if saving or waiting for confirmation (for skipping auto-refresh)
+  // Track busy state to avoid background polling collisions
   const isBusy = savingId !== null || confirmState !== null
   const isBusyRef = useRef(isBusy)
 
@@ -42,14 +66,14 @@ export default function TodayBookings() {
     isBusyRef.current = isBusy
   }, [isBusy])
 
-  // Auto-dismiss success message after 8 seconds
-  useEffect(() => {
-    if (!successMessage) return
-    const timer = setTimeout(() => {
-      setSuccessMessage(null)
-    }, 8000)
-    return () => clearTimeout(timer)
-  }, [successMessage])
+  const handleDismissSyncBanner = () => {
+    setShowSyncBanner(false)
+    try {
+      localStorage.setItem(HIDE_SYNC_BANNER_KEY, 'true')
+    } catch {
+      // Ignore localStorage errors
+    }
+  }
 
   // 1. Fetch doctors table once on mount
   useEffect(() => {
@@ -74,7 +98,7 @@ export default function TodayBookings() {
         setDoctors(map)
       } catch (err) {
         if (!isMounted) return
-        console.error('Error fetching doctors:', err.message || err)
+        console.error('Error fetching doctors:', err?.message || err)
       }
     }
 
@@ -85,7 +109,7 @@ export default function TodayBookings() {
     }
   }, [])
 
-  // 2. Fetch appointments for selectedDate
+  // 2. Fetch appointments for selectedDate with 60s silent refresh
   useEffect(() => {
     let isMounted = true
 
@@ -113,7 +137,7 @@ export default function TodayBookings() {
         setAppointments(data || [])
       } catch (err) {
         if (!isMounted) return
-        console.error('Failed to load appointments:', err.message || err)
+        console.error('Failed to load appointments:', err?.message || err)
         setError('Unable to load bookings. Please check your connection and try again.')
       } finally {
         if (isMounted) {
@@ -124,7 +148,6 @@ export default function TodayBookings() {
 
     loadAppointments(false)
 
-    // Auto-refresh every 60s, but not while saving or confirming
     const interval = setInterval(() => {
       if (isMounted && !isBusyRef.current) {
         loadAppointments(true)
@@ -160,6 +183,7 @@ export default function TodayBookings() {
   // Regular status update (Arrived, Completed, No-show) - writes directly to appointments.status
   const executeStatusUpdate = async (apptId, newStatus) => {
     setSavingId(apptId)
+    setSavingTarget(newStatus)
     setSaveErrors((prev) => ({ ...prev, [apptId]: null }))
     setConfirmState(null)
 
@@ -173,27 +197,38 @@ export default function TodayBookings() {
       if (updateError || !data || data.length !== 1) {
         setSaveErrors((prev) => ({
           ...prev,
-          [apptId]: 'Could not save. Please try again.',
+          [apptId]: 'Could not save status. Please try again.',
         }))
       } else {
-        // Update local state without reload
         setAppointments((prev) =>
           prev.map((a) => (a.id === apptId ? { ...a, status: newStatus } : a))
         )
+        const labels = {
+          arrived: 'Marked as arrived',
+          completed: 'Marked as completed',
+          no_show: 'Marked as no-show',
+          booked: 'Marked as booked',
+        }
+        setToast({
+          message: labels[newStatus] || 'Status updated',
+          type: 'success',
+        })
       }
     } catch {
       setSaveErrors((prev) => ({
         ...prev,
-        [apptId]: 'Could not save. Please try again.',
+        [apptId]: 'Could not save status. Please try again.',
       }))
     } finally {
       setSavingId(null)
+      setSavingTarget(null)
     }
   }
 
   // Cancel booking action - calls manage-appointment edge function
   const executeCancelBooking = async (apptId) => {
     setSavingId(apptId)
+    setSavingTarget('cancelled')
     setSaveErrors((prev) => ({ ...prev, [apptId]: null }))
     setConfirmState(null)
 
@@ -207,7 +242,10 @@ export default function TodayBookings() {
         setAppointments((prev) =>
           prev.map((a) => (a.id === apptId ? { ...a, status: 'cancelled' } : a))
         )
-        setSuccessMessage('Booking cancelled and removed from the calendar')
+        setToast({
+          message: 'Booking cancelled and removed from the calendar',
+          type: 'success',
+        })
       } else {
         setSaveErrors((prev) => ({
           ...prev,
@@ -221,14 +259,15 @@ export default function TodayBookings() {
       }))
     } finally {
       setSavingId(null)
+      setSavingTarget(null)
     }
   }
 
-  // Status button tap router
+  // Handle status button click
   const handleStatusClick = (appt, targetStatus) => {
     if (appt.status === targetStatus) return
 
-    if (targetStatus === 'no_show' || targetStatus === 'cancelled') {
+    if (targetStatus === 'cancelled') {
       setConfirmState({ apptId: appt.id, targetStatus })
       setSaveErrors((prev) => ({ ...prev, [appt.id]: null }))
     } else {
@@ -236,143 +275,287 @@ export default function TodayBookings() {
     }
   }
 
-  const handleCancelConfirm = () => {
+  const handleConfirmYes = (appt, targetStatus) => {
+    if (targetStatus === 'cancelled') {
+      executeCancelBooking(appt.id)
+    } else {
+      executeStatusUpdate(appt.id, targetStatus)
+    }
+  }
+
+  const handleConfirmNo = () => {
     setConfirmState(null)
   }
 
   const handleNewBookingSuccess = (msg) => {
-    setSuccessMessage(msg || 'Booking added to the calendar')
+    setToast({
+      message: msg || 'Booking added to the calendar',
+      type: 'success',
+    })
     setReloadKey((prev) => prev + 1)
   }
 
-  // Summary counts
-  const summaryLine = useMemo(() => {
-    const count = appointments.length
-    if (count === 0) return '0 bookings'
-
-    const counts = {}
-    for (const a of appointments) {
-      counts[a.status] = (counts[a.status] || 0) + 1
+  // Compute status filter counts over all loaded bookings for the viewed day
+  const filterCounts = useMemo(() => {
+    const counts = {
+      all: appointments.length,
+      upcoming: 0,
+      arrived: 0,
+      completed: 0,
+      no_show: 0,
+      cancelled: 0,
     }
 
-    const order = ['booked', 'confirmed', 'arrived', 'completed', 'no_show', 'cancelled']
-    const parts = []
-    for (const s of order) {
-      if (counts[s]) {
-        parts.push(`${counts[s]} ${formatAppointmentStatus(s).toLowerCase()}`)
+    for (const appt of appointments) {
+      if (appt.status === 'booked' || appt.status === 'confirmed') {
+        counts.upcoming += 1
+      } else if (counts[appt.status] !== undefined) {
+        counts[appt.status] += 1
       }
     }
 
-    const countText = `${count} ${count === 1 ? 'booking' : 'bookings'}`
-    return parts.length > 0 ? `${countText} • ${parts.join(', ')}` : countText
+    return counts
   }, [appointments])
+
+  // Fallback to 'all' if selected filter count drops to zero
+  const effectiveFilter = useMemo(() => {
+    if (activeFilter === 'all') return 'all'
+    if (!filterCounts[activeFilter] || filterCounts[activeFilter] === 0) {
+      return 'all'
+    }
+    return activeFilter
+  }, [activeFilter, filterCounts])
+
+  // Filtered appointments list
+  const filteredAppointments = useMemo(() => {
+    if (effectiveFilter === 'all') return appointments
+    if (effectiveFilter === 'upcoming') {
+      return appointments.filter(
+        (a) => a.status === 'booked' || a.status === 'confirmed'
+      )
+    }
+    return appointments.filter((a) => a.status === effectiveFilter)
+  }, [appointments, effectiveFilter])
 
   const todayIST = getTodayIST()
   const isToday = selectedDate === todayIST
+  const isSunday = isSundayIST(selectedDate)
+  const isPastDay = selectedDate < todayIST
   const formattedDateLabel = formatISTDateLabel(selectedDate)
+
+  // Determine "NEXT UP" index and "Time has passed" for today's view
+  const nextUpApptId = useMemo(() => {
+    if (!isToday) return null
+    const now = Date.now()
+    const upcoming = appointments.find((a) => {
+      const isBookedOrConfirmed = a.status === 'booked' || a.status === 'confirmed'
+      if (!isBookedOrConfirmed) return false
+      const slotTime = new Date(a.slot_start).getTime()
+      return slotTime > now
+    })
+    return upcoming ? upcoming.id : null
+  }, [isToday, appointments])
+
+  // Group appointments by doctor if more than one doctor has bookings
+  const doctorGroups = useMemo(() => {
+    const distinctDoctors = new Set(
+      filteredAppointments.map((a) => a.doctor_id || 'unknown')
+    )
+    if (distinctDoctors.size <= 1) {
+      return null // Don't group by doctor if only 1 doctor
+    }
+
+    const groups = {}
+    for (const a of filteredAppointments) {
+      const docId = a.doctor_id || 'unknown'
+      if (!groups[docId]) {
+        groups[docId] = []
+      }
+      groups[docId].push(a)
+    }
+    return groups
+  }, [filteredAppointments])
+
+  const totalBookingsText = `${filteredAppointments.length} ${
+    filteredAppointments.length === 1 ? 'booking' : 'bookings'
+  }`
 
   return (
     <div className="page-container">
+      {/* Toast Alert */}
+      {toast && (
+        <Toast
+          message={toast.message}
+          type={toast.type}
+          onDismiss={() => setToast(null)}
+        />
+      )}
+
+      {/* 1. Header row */}
       <header className="page-header page-header-with-actions">
         <div className="header-left">
           <Link to="/" className="btn btn-back">
-            ← Back
+            <ArrowLeft size={18} aria-hidden="true" />
+            <span>Back</span>
           </Link>
           <h1 className="page-heading">Today's Bookings</h1>
         </div>
         <button
           type="button"
           onClick={() => setShowNewBooking(true)}
-          className="btn btn-primary btn-new-booking"
+          className="btn btn-primary btn-new-booking-header"
+          aria-label="Create new booking"
         >
-          + New booking
+          <Plus size={20} aria-hidden="true" />
+          <span>New booking</span>
         </button>
       </header>
 
-      {/* Synchronisation notice (Rule 6) */}
-      <div className="calendar-sync-notice" role="note">
-        Creating, moving and cancelling bookings updates Google Calendar. Arrived, Completed and No-show do not.
-      </div>
-
-      {/* Success alert banner */}
-      {successMessage && (
-        <div className="alert alert-success" role="status">
-          <span className="alert-success-text">✓ {successMessage}</span>
+      {/* 2. Info Sync Banner */}
+      {showSyncBanner && (
+        <div className="sync-info-banner" role="note">
+          <div className="sync-banner-content">
+            <Info size={18} className="sync-banner-icon" aria-hidden="true" />
+            <p className="sync-banner-text">
+              Creating, moving and cancelling bookings updates Google Calendar. Arrived,
+              Completed and No-show do not.
+            </p>
+          </div>
           <button
             type="button"
-            className="btn-dismiss-alert"
-            onClick={() => setSuccessMessage(null)}
-            aria-label="Dismiss message"
+            onClick={handleDismissSyncBanner}
+            className="sync-banner-dismiss-btn"
+            aria-label="Dismiss banner"
           >
-            ✕
+            <X size={16} />
           </button>
         </div>
       )}
 
-      {/* Date Switcher */}
-      <section className="card date-switcher-card" aria-label="Date Navigation">
-        <div className="date-nav-buttons">
-          <button
-            type="button"
-            onClick={handlePrevDay}
-            className="btn btn-secondary btn-date-step"
-            title="Previous day"
-          >
-            ← Previous day
-          </button>
-          <button
-            type="button"
-            onClick={handleToday}
-            className={`btn btn-secondary btn-today ${isToday ? 'btn-today-active' : ''}`}
-          >
-            Today
-          </button>
-          <button
-            type="button"
-            onClick={handleNextDay}
-            className="btn btn-secondary btn-date-step"
-            title="Next day"
-          >
-            Next day →
-          </button>
-        </div>
+      {/* 3. Day Navigator Card */}
+      <DayNavigator
+        selectedDate={selectedDate}
+        todayIST={todayIST}
+        formattedDateLabel={formattedDateLabel}
+        onPrevDay={handlePrevDay}
+        onNextDay={handleNextDay}
+        onToday={handleToday}
+        onDateChange={(newDate) => {
+          setSelectedDate(newDate)
+          setConfirmState(null)
+        }}
+      />
 
-        <div className="date-display-row">
-          <div className="date-label-badge">
-            <span className="current-date-text">{formattedDateLabel}</span>
-            {isToday && <span className="today-chip">Today</span>}
-          </div>
-          <input
-            type="date"
-            value={selectedDate}
-            onChange={(e) => {
-              if (e.target.value) {
-                setSelectedDate(e.target.value)
-                setConfirmState(null)
-              }
-            }}
-            className="filter-input date-picker-input"
-            aria-label="Pick date"
-          />
-        </div>
-      </section>
+      {/* 4. Status Filter Chips (Single Select) */}
+      <div
+        className="booking-filter-chips-bar"
+        role="tablist"
+        aria-label="Filter bookings by status"
+      >
+        <button
+          type="button"
+          role="tab"
+          aria-selected={effectiveFilter === 'all'}
+          onClick={() => setActiveFilter('all')}
+          className={`filter-chip ${
+            effectiveFilter === 'all' ? 'filter-chip-active' : ''
+          }`}
+        >
+          All ({filterCounts.all})
+        </button>
 
-      {/* Summary line */}
-      <div className="bookings-summary-bar">
-        <span className="summary-count-text">{summaryLine}</span>
+        {filterCounts.upcoming > 0 && (
+          <button
+            type="button"
+            role="tab"
+            aria-selected={effectiveFilter === 'upcoming'}
+            onClick={() => setActiveFilter('upcoming')}
+            className={`filter-chip ${
+              effectiveFilter === 'upcoming' ? 'filter-chip-active' : ''
+            }`}
+          >
+            Upcoming ({filterCounts.upcoming})
+          </button>
+        )}
+
+        {filterCounts.arrived > 0 && (
+          <button
+            type="button"
+            role="tab"
+            aria-selected={effectiveFilter === 'arrived'}
+            onClick={() => setActiveFilter('arrived')}
+            className={`filter-chip ${
+              effectiveFilter === 'arrived' ? 'filter-chip-active' : ''
+            }`}
+          >
+            Arrived ({filterCounts.arrived})
+          </button>
+        )}
+
+        {filterCounts.completed > 0 && (
+          <button
+            type="button"
+            role="tab"
+            aria-selected={effectiveFilter === 'completed'}
+            onClick={() => setActiveFilter('completed')}
+            className={`filter-chip ${
+              effectiveFilter === 'completed' ? 'filter-chip-active' : ''
+            }`}
+          >
+            Completed ({filterCounts.completed})
+          </button>
+        )}
+
+        {filterCounts.no_show > 0 && (
+          <button
+            type="button"
+            role="tab"
+            aria-selected={effectiveFilter === 'no_show'}
+            onClick={() => setActiveFilter('no_show')}
+            className={`filter-chip ${
+              effectiveFilter === 'no_show' ? 'filter-chip-active' : ''
+            }`}
+          >
+            No-show ({filterCounts.no_show})
+          </button>
+        )}
+
+        {filterCounts.cancelled > 0 && (
+          <button
+            type="button"
+            role="tab"
+            aria-selected={effectiveFilter === 'cancelled'}
+            onClick={() => setActiveFilter('cancelled')}
+            className={`filter-chip ${
+              effectiveFilter === 'cancelled' ? 'filter-chip-active' : ''
+            }`}
+          >
+            Cancelled ({filterCounts.cancelled})
+          </button>
+        )}
       </div>
 
-      {/* Main Bookings List */}
-      <main className="bookings-content">
+      {/* 5. Count Divider Row */}
+      <div className="bookings-count-divider-row">
+        <span className="bookings-count-label">{totalBookingsText}</span>
+        <div className="count-hairline" />
+      </div>
+
+      {/* 6. Main Bookings List / States */}
+      <main className="bookings-main-content">
+        {/* Loading Skeletons */}
         {loading && (
-          <div className="loading-card">
-            <div className="spinner" aria-hidden="true" />
-            <p className="loading-text">Loading bookings...</p>
+          <div className="bookings-skeleton-list" aria-busy="true" aria-label="Loading bookings">
+            <div className="skeleton-card skeleton-booking-card" />
+            <div className="skeleton-card skeleton-booking-card" />
+            <div className="skeleton-card skeleton-booking-card" />
           </div>
         )}
 
+        {/* Error State */}
         {!loading && error && (
-          <div className="card error-card">
+          <div className="card error-card-modern" role="alert">
+            <AlertCircle size={28} className="error-icon" aria-hidden="true" />
             <p className="error-text">{error}</p>
             <button
               type="button"
@@ -388,189 +571,137 @@ export default function TodayBookings() {
           </div>
         )}
 
-        {!loading && !error && appointments.length === 0 && (
-          <div className="card empty-card">
-            <p className="empty-title">No bookings for this day</p>
+        {/* Empty State: Sunday */}
+        {!loading && !error && appointments.length === 0 && isSunday && (
+          <div className="card empty-bookings-card" role="status">
+            <div className="empty-icon-tile">
+              <CalendarOff size={32} className="empty-tile-icon" aria-hidden="true" />
+            </div>
+            <h3 className="empty-title">The clinic is closed on Sundays.</h3>
             <p className="empty-subtitle">
-              There are no scheduled appointments for {formattedDateLabel}.
+              Regular operating hours are Monday through Saturday.
             </p>
           </div>
         )}
 
-        {!loading && !error && appointments.length > 0 && (
-          <div className="bookings-list">
-            {appointments.map((appt) => {
-              const timeString = formatISTTimeShort(appt.slot_start)
-              const doctorName = doctors[appt.doctor_id] || 'Doctor'
-              const maskedPhone = maskPhone(appt.patient_phone)
-              const hasPhone = appt.patient_phone && appt.patient_phone.trim() !== ''
-              const statusColor = getAppointmentStatusColor(appt.status)
-              const statusLabel = formatAppointmentStatus(appt.status)
-              const isCancelled = appt.status === 'cancelled'
-              const sourceLabel = appt.source === 'ai' ? 'AI booked' : 'Staff'
-              const isSaving = savingId === appt.id
-              const saveError = saveErrors[appt.id]
-              const isConfirming =
-                confirmState && confirmState.apptId === appt.id
+        {/* Empty State: Weekday with 0 Bookings */}
+        {!loading && !error && appointments.length === 0 && !isSunday && (
+          <div className="card empty-bookings-card" role="status">
+            <div className="empty-icon-tile">
+              <CalendarCheck size={32} className="empty-tile-icon" aria-hidden="true" />
+            </div>
+            <h3 className="empty-title">No bookings for this day</h3>
+            <p className="empty-subtitle">
+              There are no scheduled appointments for {formattedDateLabel}.
+            </p>
+            {!isPastDay && (
+              <button
+                type="button"
+                onClick={() => setShowNewBooking(true)}
+                className="btn btn-primary btn-empty-new-booking"
+              >
+                <Plus size={18} aria-hidden="true" />
+                <span>+ New booking</span>
+              </button>
+            )}
+          </div>
+        )}
 
-              return (
-                <article
-                  key={appt.id}
-                  className={`card booking-card ${
-                    isCancelled ? 'booking-card-cancelled' : ''
-                  }`}
-                >
-                  {/* Card Top: Time, Doctor & Status badge */}
-                  <div className="booking-card-top">
-                    <div className="time-doctor-group">
-                      <span className="booking-time-large">{timeString}</span>
-                      <span className="booking-doctor-name">with {doctorName}</span>
-                    </div>
+        {/* Empty Filter State (items exist for the day, but none for the chosen filter) */}
+        {!loading && !error && appointments.length > 0 && filteredAppointments.length === 0 && (
+          <div className="card empty-filter-card" role="status">
+            <p className="empty-filter-title">No bookings with this status</p>
+            <button
+              type="button"
+              onClick={() => setActiveFilter('all')}
+              className="btn btn-secondary btn-clear-filter"
+            >
+              Show all
+            </button>
+          </div>
+        )}
 
-                    <div className="booking-badge-group">
-                      <span className="source-tag">{sourceLabel}</span>
-                      <span
-                        className={`badge status-badge status-badge-${statusColor}`}
-                      >
-                        {statusLabel}
+        {/* Render Bookings List */}
+        {!loading && !error && filteredAppointments.length > 0 && (
+          <div className="bookings-cards-container">
+            {doctorGroups ? (
+              // Grouped by Doctor
+              Object.entries(doctorGroups).map(([docId, docAppts]) => {
+                const docName = doctors[docId] || 'Doctor'
+                const formattedDoctor = formatDoctorName(docName)
+
+                return (
+                  <section key={docId} className="doctor-bookings-group">
+                    <div className="doctor-group-header">
+                      <h3 className="doctor-group-title">
+                        {formattedDoctor}
+                      </h3>
+                      <span className="doctor-group-count">
+                        {docAppts.length} {docAppts.length === 1 ? 'booking' : 'bookings'}
                       </span>
                     </div>
-                  </div>
 
-                  {/* Card Body: Patient info & Phone */}
-                  <div className="booking-card-body">
-                    <div className="patient-name-row">
-                      <h2 className="patient-display-name">{appt.patient_name || 'Patient'}</h2>
-                      <div className="phone-action-row">
-                        <span className="patient-masked-phone">{maskedPhone}</span>
-                        {hasPhone && (
-                          <a
-                            href={`tel:${appt.patient_phone}`}
-                            className="btn btn-call-tel"
-                            title="Call patient"
-                          >
-                            📞 Call
-                          </a>
-                        )}
-                      </div>
+                    <div className="bookings-cards-list">
+                      {docAppts.map((appt) => {
+                        const isNextUp = isToday && appt.id === nextUpApptId
+                        const isPastUnfinished =
+                          isToday &&
+                          (appt.status === 'booked' || appt.status === 'confirmed') &&
+                          new Date(appt.slot_start).getTime() < Date.now()
+
+                        return (
+                          <BookingCard
+                            key={appt.id}
+                            appointment={appt}
+                            doctorName={docName}
+                            isNextUp={isNextUp}
+                            isPastUnfinished={isPastUnfinished}
+                            isSaving={savingId === appt.id}
+                            savingTarget={savingTarget}
+                            isConfirming={confirmState?.apptId === appt.id}
+                            confirmTarget={confirmState?.targetStatus}
+                            saveError={saveErrors[appt.id]}
+                            onStatusClick={handleStatusClick}
+                            onConfirmYes={handleConfirmYes}
+                            onConfirmNo={handleConfirmNo}
+                          />
+                        )
+                      })}
                     </div>
+                  </section>
+                )
+              })
+            ) : (
+              // Single Doctor or Unknown Doctor: Direct List
+              <div className="bookings-cards-list">
+                {filteredAppointments.map((appt) => {
+                  const docName = doctors[appt.doctor_id] || 'Doctor'
+                  const isNextUp = isToday && appt.id === nextUpApptId
+                  const isPastUnfinished =
+                    isToday &&
+                    (appt.status === 'booked' || appt.status === 'confirmed') &&
+                    new Date(appt.slot_start).getTime() < Date.now()
 
-                    {appt.reason && (
-                      <p className="booking-reason-text">
-                        <span className="reason-label">Reason: </span>
-                        {appt.reason}
-                      </p>
-                    )}
-                  </div>
-
-                  {/* Open call link if call_id exists */}
-                  {appt.call_id && (
-                    <div className="booking-call-link-row">
-                      <Link
-                        to={`/calls/${appt.call_id}`}
-                        className="btn btn-secondary btn-open-call-link"
-                      >
-                        Open call
-                      </Link>
-                    </div>
-                  )}
-
-                  {/* Error Alert if save or cancel failed */}
-                  {saveError && (
-                    <div className="save-error-notice" role="alert">
-                      {saveError}
-                    </div>
-                  )}
-
-                  {/* Confirmation Prompt for No-show / Cancelled */}
-                  {isConfirming && (
-                    <div className="confirm-action-box" role="alert">
-                      <p className="confirm-prompt-text">
-                        {confirmState.targetStatus === 'no_show'
-                          ? 'Mark as no-show?'
-                          : 'Mark as cancelled?'}
-                      </p>
-                      {confirmState.targetStatus === 'cancelled' && (
-                        <p className="confirm-subprompt-text">
-                          This will cancel and remove the booking from Google Calendar.
-                        </p>
-                      )}
-                      <div className="confirm-btn-row">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (confirmState.targetStatus === 'cancelled') {
-                              executeCancelBooking(appt.id)
-                            } else {
-                              executeStatusUpdate(appt.id, confirmState.targetStatus)
-                            }
-                          }}
-                          disabled={isSaving}
-                          className="btn btn-primary btn-confirm-yes"
-                        >
-                          {isSaving ? 'Saving...' : 'Yes'}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={handleCancelConfirm}
-                          disabled={isSaving}
-                          className="btn btn-secondary btn-confirm-no"
-                        >
-                          No
-                        </button>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Status Action Buttons */}
-                  <div className="booking-status-buttons">
-                    <button
-                      type="button"
-                      onClick={() => handleStatusClick(appt, 'arrived')}
-                      disabled={isSaving || appt.status === 'arrived'}
-                      className={`btn btn-status-opt ${
-                        appt.status === 'arrived' ? 'status-btn-active' : ''
-                      }`}
-                    >
-                      Arrived
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => handleStatusClick(appt, 'completed')}
-                      disabled={isSaving || appt.status === 'completed'}
-                      className={`btn btn-status-opt ${
-                        appt.status === 'completed' ? 'status-btn-active' : ''
-                      }`}
-                    >
-                      Completed
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => handleStatusClick(appt, 'no_show')}
-                      disabled={isSaving || appt.status === 'no_show'}
-                      className={`btn btn-status-opt ${
-                        appt.status === 'no_show' ? 'status-btn-active' : ''
-                      }`}
-                    >
-                      No-show
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => handleStatusClick(appt, 'cancelled')}
-                      disabled={isSaving || appt.status === 'cancelled'}
-                      className={`btn btn-status-opt ${
-                        appt.status === 'cancelled' ? 'status-btn-active' : ''
-                      }`}
-                    >
-                      Cancelled
-                    </button>
-                  </div>
-                </article>
-              )
-            })}
+                  return (
+                    <BookingCard
+                      key={appt.id}
+                      appointment={appt}
+                      doctorName={docName}
+                      isNextUp={isNextUp}
+                      isPastUnfinished={isPastUnfinished}
+                      isSaving={savingId === appt.id}
+                      savingTarget={savingTarget}
+                      isConfirming={confirmState?.apptId === appt.id}
+                      confirmTarget={confirmState?.targetStatus}
+                      saveError={saveErrors[appt.id]}
+                      onStatusClick={handleStatusClick}
+                      onConfirmYes={handleConfirmYes}
+                      onConfirmNo={handleConfirmNo}
+                    />
+                  )
+                })}
+              </div>
+            )}
           </div>
         )}
       </main>

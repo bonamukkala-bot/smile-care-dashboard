@@ -684,7 +684,41 @@ export function getISTLongDate() {
   }
 }
 
+/**
+ * Format doctor name, normalizing leading "Dr." or "Dr" prefixes (case-insensitive, repeated),
+ * returning "Dr. <rest>". Returns "Doctor" for empty or missing values.
+ */
+export function formatDoctorName(name) {
+  if (!name || typeof name !== 'string') return 'Doctor'
+  const trimmed = name.trim()
+  if (!trimmed) return 'Doctor'
+  if (trimmed.toLowerCase() === 'doctor') return 'Doctor'
 
+  // Remove leading Dr. or Dr (repeated) with whitespace and dots
+  const stripped = trimmed.replace(/^(dr\.?\s*)+/i, '').trim()
+  if (!stripped || stripped.toLowerCase() === 'doctor') {
+    return 'Doctor'
+  }
+  return `Dr. ${stripped}`
+}
 
-
+/**
+ * Format 30-minute slot end time in IST (e.g., "11:30 AM")
+ */
+export function formatSlotEndTime(slotStart) {
+  if (!slotStart) return ''
+  try {
+    const start = new Date(slotStart)
+    if (isNaN(start.getTime())) return ''
+    const end = new Date(start.getTime() + 30 * 60 * 1000)
+    return new Intl.DateTimeFormat('en-US', {
+      timeZone: 'Asia/Kolkata',
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true,
+    }).format(end)
+  } catch {
+    return ''
+  }
+}
 
