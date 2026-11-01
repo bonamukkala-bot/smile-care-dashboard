@@ -7,6 +7,8 @@ import CallLog from './components/CallLog'
 import CallDetail from './components/CallDetail'
 import NeedsAttention from './components/NeedsAttention'
 import TodayBookings from './components/TodayBookings'
+import Appointments from './components/Appointments'
+import AppointmentDetail from './components/AppointmentDetail'
 import './App.css'
 
 export default function App() {
@@ -157,6 +159,11 @@ export default function App() {
         element={<NeedsAttention currentUserId={session?.user?.id} />}
       />
       <Route path="/bookings" element={<TodayBookings />} />
+      <Route path="/appointments" element={<Appointments />} />
+      <Route
+        path="/appointments/:id"
+        element={<AppointmentDetail currentUserId={session?.user?.id} />}
+      />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   )

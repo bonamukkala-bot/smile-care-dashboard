@@ -359,3 +359,81 @@ export function getAppointmentStatusColor(status) {
   }
 }
 
+/**
+ * Format 30-minute appointment slot range in IST like "10:00 AM - 10:30 AM"
+ */
+export function formatSlotRange(slotStart) {
+  if (!slotStart) return '-'
+  try {
+    const start = new Date(slotStart)
+    if (isNaN(start.getTime())) return '-'
+    const end = new Date(start.getTime() + 30 * 60 * 1000)
+    const fmt = (d) =>
+      new Intl.DateTimeFormat('en-US', {
+        timeZone: 'Asia/Kolkata',
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true,
+      }).format(d)
+    return `${fmt(start)} - ${fmt(end)}`
+  } catch {
+    return '-'
+  }
+}
+
+/**
+ * Calculate the 7 days (Monday to Sunday) of the week in IST for a given date string (YYYY-MM-DD)
+ */
+export function getISTWeekDays(dateStr) {
+  try {
+    const d = new Date(`${dateStr}T12:00:00+05:30`)
+    if (isNaN(d.getTime())) return []
+    const day = d.getDay() // 0=Sun, 1=Mon, ..., 6=Sat
+    const diffToMonday = (day === 0 ? 7 : day) - 1
+    const monday = new Date(d)
+    monday.setDate(d.getDate() - diffToMonday)
+
+    const week = []
+    for (let i = 0; i < 7; i++) {
+      const cur = new Date(monday)
+      cur.setDate(monday.getDate() + i)
+      const key = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Asia/Kolkata',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+      }).format(cur)
+      week.push(key)
+    }
+    return week
+  } catch {
+    return []
+  }
+}
+
+/**
+ * Format week label like "26 Oct – 1 Nov 2026"
+ */
+export function formatISTWeekLabel(monStr, sunStr) {
+  if (!monStr || !sunStr) return ''
+  try {
+    const m = new Date(`${monStr}T12:00:00+05:30`)
+    const s = new Date(`${sunStr}T12:00:00+05:30`)
+    const mFmt = new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'Asia/Kolkata',
+      day: 'numeric',
+      month: 'short',
+    }).format(m)
+    const sFmt = new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'Asia/Kolkata',
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric',
+    }).format(s)
+    return `${mFmt} – ${sFmt}`
+  } catch {
+    return `${monStr} – ${sunStr}`
+  }
+}
+
+

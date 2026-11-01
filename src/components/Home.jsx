@@ -140,6 +140,15 @@ export default function Home({ profile }) {
             </span>
           </Link>
 
+          {/* Big Appointments Button (Day / Week / List views) */}
+          <Link
+            to="/appointments"
+            className="btn btn-nav-card btn-nav-appointments"
+          >
+            <span className="btn-nav-main-text">Appointments</span>
+            <span className="btn-nav-sub-arrow">Day, Week, List →</span>
+          </Link>
+
           {/* Big Call Log Button */}
           <Link to="/calls" className="btn btn-primary btn-nav-card btn-nav-calls">
             <span className="btn-nav-main-text">Call Log</span>

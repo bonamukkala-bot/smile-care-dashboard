@@ -969,6 +969,21 @@
   background-color: #0369a1;
 }
 
+.btn-nav-appointments {
+  background-color: #0f766e;
+  color: #ffffff;
+}
+
+.btn-nav-appointments:hover {
+  background-color: #115e59;
+}
+
+.btn-nav-sub-arrow {
+  font-size: 15px;
+  font-weight: 600;
+  color: #ccfbf1;
+}
+
 .counter-badge-teal {
   background-color: #ffffff;
   color: #0284c7;
@@ -2047,5 +2062,292 @@
   font-size: 15px;
   color: var(--text-secondary);
 }
+
+/* Appointments Screen & Detail */
+.view-toggle-bar {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+
+.view-toggle-btn {
+  min-height: 48px;
+  padding: 0 20px;
+  font-size: 18px;
+  font-weight: 600;
+  background-color: #ffffff;
+  color: var(--text-primary);
+  border: 1.5px solid var(--border-color);
+  border-radius: var(--radius);
+  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.view-toggle-btn:hover {
+  background-color: #f8fafc;
+}
+
+.view-btn-active {
+  background-color: var(--primary) !important;
+  color: #ffffff !important;
+  border-color: var(--primary) !important;
+  font-weight: 700;
+}
+
+.list-view-nav-card {
+  padding: 16px 20px;
+  margin-bottom: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  text-align: left;
+}
+
+.list-toggle-row {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.list-filter-btn {
+  min-height: 48px;
+  padding: 0 20px;
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.list-filter-active {
+  background-color: var(--primary) !important;
+  color: #ffffff !important;
+  border-color: var(--primary) !important;
+  font-weight: 700;
+}
+
+.list-mode-desc {
+  font-size: 16px;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.show-cancelled-group {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding-top: 4px;
+}
+
+.checkbox-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--text-primary);
+  min-height: 48px;
+  user-select: none;
+}
+
+.checkbox-input {
+  width: 22px;
+  height: 22px;
+  accent-color: var(--primary);
+  cursor: pointer;
+}
+
+.btn-clear-filters {
+  min-height: 48px;
+  padding: 0 18px;
+  font-size: 16px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* Day View Styles */
+.day-view-container {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+}
+
+.doctor-section {
+  display: flex;
+  flex-direction: column;
+}
+
+.doctor-group-heading {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0 0 14px 0;
+  text-align: left;
+}
+
+/* Week View Styles */
+.week-view-container {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.week-day-section {
+  padding: 20px;
+  border: 1.5px solid var(--border-light);
+  border-radius: 12px;
+  text-align: left;
+}
+
+.week-day-today {
+  border-color: var(--primary);
+  background-color: #f0fdfa;
+}
+
+.week-day-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border-light);
+}
+
+.week-day-title-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.week-day-title {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.week-day-count-badge {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.week-day-empty-text {
+  font-size: 17px;
+  color: var(--text-muted);
+  font-style: italic;
+  margin: 12px 0 0 0;
+}
+
+.mt-12 {
+  margin-top: 12px;
+}
+
+/* List View Styles */
+.list-view-container {
+  display: flex;
+  flex-direction: column;
+  gap: 26px;
+}
+
+.list-date-group {
+  display: flex;
+  flex-direction: column;
+}
+
+.list-date-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 12px;
+  border-bottom: 1.5px solid var(--border-light);
+  padding-bottom: 6px;
+}
+
+.list-date-title {
+  font-size: 21px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0;
+  text-align: left;
+}
+
+.date-count-label {
+  font-size: 15px;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+/* Booking Card Enhancements */
+.appt-item-card {
+  text-decoration: none;
+  color: inherit;
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+}
+
+.appt-item-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 14px -2px rgba(0, 0, 0, 0.08);
+  border-color: var(--primary);
+}
+
+.appt-card-footer {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 8px;
+  border-top: 1px solid #f1f5f9;
+}
+
+.tap-hint {
+  font-size: 15px;
+  color: var(--primary);
+  font-weight: 600;
+}
+
+/* Appointment Detail Page */
+.meta-subvalue {
+  font-size: 15px;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.detail-reason-box {
+  margin-top: 16px;
+  padding: 14px 18px;
+  background-color: #f8fafc;
+  border-radius: var(--radius);
+  border: 1px solid var(--border-light);
+  text-align: left;
+}
+
+.detail-reason-text {
+  font-size: 18px;
+  line-height: 1.5;
+  color: var(--text-primary);
+  margin: 6px 0 0 0;
+}
+
+.call-link-wrapper {
+  margin-top: 16px;
+  display: flex;
+}
+
+.undo-status-row {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1.5px dashed var(--border-color);
+  display: flex;
+  justify-content: flex-start;
+}
+
+.btn-undo-booked {
+  min-height: 48px;
+  padding: 0 20px;
+  font-size: 17px;
+  font-weight: 600;
+}
+
 
 
