@@ -12,6 +12,16 @@ import {
   formatVariableValue,
 } from '../lib/helpers'
 
+const OUTCOME_OPTIONS = [
+  'Emergency',
+  'Booked',
+  'Cancel request',
+  'Reschedule request',
+  'Call failed',
+  'Hung up',
+  'Info only',
+]
+
 export default function CallLog() {
   const [calls, setCalls] = useState([])
   const [loading, setLoading] = useState(true)
@@ -21,6 +31,9 @@ export default function CallLog() {
   // Filter states
   const [selectedDate, setSelectedDate] = useState('')
   const [flaggedOnly, setFlaggedOnly] = useState(false)
+  const [selectedOutcome, setSelectedOutcome] = useState('all')
+  const [selectedLanguage, setSelectedLanguage] = useState('all')
+  const [selectedReviewStatus, setSelectedReviewStatus] = useState('all')
   const [searchQuery, setSearchQuery] = useState('')
 
   useEffect(() => {
@@ -48,8 +61,8 @@ export default function CallLog() {
 
         const callIds = callsData.map((c) => c.call_id)
 
-        // 2. Fetch open attention items and appointments for these call_ids in parallel
-        const [attentionRes, appointmentsRes] = await Promise.all([
+        // 2. Fetch open attention items, appointments, and reviews in parallel
+        const [attentionRes, appointmentsRes, reviewsRes] = await Promise.all([
           supabase
             .from('attention_items')
             .select('call_id, type, status')
@@ -59,13 +72,21 @@ export default function CallLog() {
             .from('appointments')
             .select('call_id, patient_name, slot_start, status')
             .in('call_id', callIds),
+          supabase
+            .from('call_reviews')
+            .select('call_id')
+            .in('call_id', callIds),
         ])
 
         if (!isMounted) return
         if (attentionRes.error) throw attentionRes.error
         if (appointmentsRes.error) throw appointmentsRes.error
+        // Note: reviewsRes.error shouldn't block the screen, but check if any
+        if (reviewsRes.error) {
+          console.error('Failed to load call reviews:', reviewsRes.error.message)
+        }
 
-        // 3. Map attention items and appointments by call_id
+        // 3. Map attention items, appointments, and reviews
         const attentionMap = {}
         for (const item of attentionRes.data || []) {
           if (!attentionMap[item.call_id]) {
@@ -79,11 +100,14 @@ export default function CallLog() {
           appointmentMap[appt.call_id] = appt
         }
 
+        const reviewedSet = new Set((reviewsRes.data || []).map((r) => r.call_id))
+
         // 4. Join data in JavaScript
         const joinedCalls = callsData.map((call) => ({
           ...call,
           attentionItems: attentionMap[call.call_id] || [],
           appointment: appointmentMap[call.call_id] || null,
+          isReviewed: reviewedSet.has(call.call_id),
         }))
 
         setCalls(joinedCalls)
@@ -111,6 +135,41 @@ export default function CallLog() {
     setReloadKey((prev) => prev + 1)
   }
 
+  // Compute distinct languages from the loaded calls
+  const distinctLanguages = useMemo(() => {
+    const langSet = new Set()
+    for (const call of calls) {
+      const lang = call.variables?.call_language
+      if (
+        lang &&
+        typeof lang === 'string' &&
+        lang.trim() !== '' &&
+        lang.toUpperCase() !== 'NA'
+      ) {
+        langSet.add(lang.trim())
+      }
+    }
+    return Array.from(langSet).sort()
+  }, [calls])
+
+  // Clear all filters handler
+  const handleClearAllFilters = () => {
+    setSelectedDate('')
+    setFlaggedOnly(false)
+    setSelectedOutcome('all')
+    setSelectedLanguage('all')
+    setSelectedReviewStatus('all')
+    setSearchQuery('')
+  }
+
+  const hasActiveFilters =
+    Boolean(selectedDate) ||
+    flaggedOnly ||
+    selectedOutcome !== 'all' ||
+    selectedLanguage !== 'all' ||
+    selectedReviewStatus !== 'all' ||
+    Boolean(searchQuery.trim())
+
   // Filtered calls
   const filteredCalls = useMemo(() => {
     const trimmedSearch = searchQuery.trim()
@@ -133,7 +192,29 @@ export default function CallLog() {
         }
       }
 
-      // 3. Search filter
+      // 3. Outcome filter
+      const outcome = getOutcome(call, call.appointment, call.attentionItems)
+      if (selectedOutcome !== 'all' && outcome.label !== selectedOutcome) {
+        return false
+      }
+
+      // 4. Language filter
+      if (selectedLanguage !== 'all') {
+        const callLang = (call.variables?.call_language || '').trim()
+        if (callLang !== selectedLanguage) {
+          return false
+        }
+      }
+
+      // 5. Reviewed / Not reviewed filter
+      if (selectedReviewStatus === 'reviewed' && !call.isReviewed) {
+        return false
+      }
+      if (selectedReviewStatus === 'not_reviewed' && call.isReviewed) {
+        return false
+      }
+
+      // 6. Search filter (Caller name OR phone digits)
       if (trimmedSearch) {
         const callerName = call.variables?.full_name
           ? String(call.variables.full_name)
@@ -151,7 +232,15 @@ export default function CallLog() {
 
       return true
     })
-  }, [calls, selectedDate, flaggedOnly, searchQuery])
+  }, [
+    calls,
+    selectedDate,
+    flaggedOnly,
+    selectedOutcome,
+    selectedLanguage,
+    selectedReviewStatus,
+    searchQuery,
+  ])
 
   return (
     <div className="page-container">
@@ -164,6 +253,7 @@ export default function CallLog() {
 
       {/* Filters bar */}
       <section className="card filters-card" aria-label="Call Filters">
+        {/* Row 1: Date & Flagged Toggle */}
         <div className="filter-group date-filter-group">
           <label htmlFor="date-picker" className="filter-label">
             Filter by Date
@@ -181,6 +271,7 @@ export default function CallLog() {
                 type="button"
                 onClick={() => setSelectedDate('')}
                 className="btn btn-secondary filter-btn"
+                title="Clear date"
               >
                 Clear
               </button>
@@ -200,18 +291,88 @@ export default function CallLog() {
           </button>
         </div>
 
+        {/* Row 2: Outcome Filter */}
+        <div className="filter-group">
+          <label htmlFor="outcome-select" className="filter-label">
+            Outcome
+          </label>
+          <select
+            id="outcome-select"
+            value={selectedOutcome}
+            onChange={(e) => setSelectedOutcome(e.target.value)}
+            className="filter-input filter-select"
+          >
+            <option value="all">All Outcomes</option>
+            {OUTCOME_OPTIONS.map((opt) => (
+              <option key={opt} value={opt}>
+                {opt}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {/* Row 3: Language Filter */}
+        <div className="filter-group">
+          <label htmlFor="language-select" className="filter-label">
+            Language
+          </label>
+          <select
+            id="language-select"
+            value={selectedLanguage}
+            onChange={(e) => setSelectedLanguage(e.target.value)}
+            className="filter-input filter-select"
+          >
+            <option value="all">All Languages</option>
+            {distinctLanguages.map((lang) => (
+              <option key={lang} value={lang}>
+                {lang}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {/* Row 4: Review Status Filter */}
+        <div className="filter-group">
+          <label htmlFor="review-select" className="filter-label">
+            Review Status
+          </label>
+          <select
+            id="review-select"
+            value={selectedReviewStatus}
+            onChange={(e) => setSelectedReviewStatus(e.target.value)}
+            className="filter-input filter-select"
+          >
+            <option value="all">All Review Status</option>
+            <option value="reviewed">Reviewed</option>
+            <option value="not_reviewed">Not reviewed</option>
+          </select>
+        </div>
+
+        {/* Row 5: Search Filter & Clear All */}
         <div className="filter-group search-filter-group">
           <label htmlFor="search-input" className="filter-label">
             Search Caller or Phone
           </label>
-          <input
-            id="search-input"
-            type="text"
-            placeholder="Search by name or number..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="filter-input search-input"
-          />
+          <div className="search-input-row">
+            <input
+              id="search-input"
+              type="text"
+              placeholder="Search by name or number..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="filter-input search-input"
+            />
+            {hasActiveFilters && (
+              <button
+                type="button"
+                onClick={handleClearAllFilters}
+                className="btn btn-secondary btn-clear-all"
+                title="Reset all filters"
+              >
+                Clear all filters
+              </button>
+            )}
+          </div>
         </div>
       </section>
 
@@ -243,8 +404,17 @@ export default function CallLog() {
             <p className="empty-subtitle">
               {calls.length === 0
                 ? 'There are no recorded calls at this time.'
-                : 'Try adjusting your date, search, or flag filters.'}
+                : 'Try adjusting your filters.'}
             </p>
+            {hasActiveFilters && (
+              <button
+                type="button"
+                onClick={handleClearAllFilters}
+                className="btn btn-secondary mt-16"
+              >
+                Clear all filters
+              </button>
+            )}
           </div>
         )}
 
@@ -270,11 +440,18 @@ export default function CallLog() {
                 >
                   <div className="call-card-top">
                     <span className="call-time">{formattedTime}</span>
-                    {hasFlag && (
-                      <span className="badge flag-badge">
-                        Needs attention
-                      </span>
-                    )}
+                    <div className="call-card-badges">
+                      {call.isReviewed && (
+                        <span className="badge review-badge" title="This call has been reviewed">
+                          ✓ Reviewed
+                        </span>
+                      )}
+                      {hasFlag && (
+                        <span className="badge flag-badge">
+                          Needs attention
+                        </span>
+                      )}
+                    </div>
                   </div>
 
                   <div className="call-card-main">

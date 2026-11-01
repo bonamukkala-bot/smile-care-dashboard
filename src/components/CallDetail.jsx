@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import {
@@ -11,8 +11,10 @@ import {
   formatAttentionType,
 } from '../lib/helpers'
 
-export default function CallDetail() {
+export default function CallDetail({ currentUserId }) {
   const { callId } = useParams()
+  const [resolvedUserId, setResolvedUserId] = useState(null)
+  const userId = currentUserId || resolvedUserId
   const [call, setCall] = useState(null)
   const [turns, setTurns] = useState([])
   const [attentionItems, setAttentionItems] = useState([])
@@ -20,6 +22,43 @@ export default function CallDetail() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
 
+  // Part A: Review state
+  const [review, setReview] = useState(null)
+  const [staffMap, setStaffMap] = useState({})
+  const [isEditingNote, setIsEditingNote] = useState(false)
+  const [noteInput, setNoteInput] = useState('')
+  const [isSavingReview, setIsSavingReview] = useState(false)
+  const [reviewError, setReviewError] = useState(null)
+
+  // Part A: Issue reports state
+  const [issueReports, setIssueReports] = useState([])
+  const [isReportingOpen, setIsReportingOpen] = useState(false)
+  const [issueReason, setIssueReason] = useState('')
+  const [isSubmittingIssue, setIsSubmittingIssue] = useState(false)
+  const [issueError, setIssueError] = useState(null)
+  const [issueSuccess, setIssueSuccess] = useState(null)
+
+  // Part C: Audit log refs (guard against StrictMode double-running)
+  const hasAuditedViewRef = useRef(false)
+  const hasAuditedPlayRef = useRef(false)
+
+  // Resolve user id if not provided via props
+  useEffect(() => {
+    if (currentUserId) return
+    let isMounted = true
+
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (isMounted && session?.user?.id) {
+        setResolvedUserId(session.user.id)
+      }
+    })
+
+    return () => {
+      isMounted = false
+    }
+  }, [currentUserId])
+
+  // Load call details
   useEffect(() => {
     let isMounted = true
 
@@ -29,8 +68,15 @@ export default function CallDetail() {
       setError(null)
 
       try {
-        // Fetch call (WITHOUT raw_payload), turns, attention items, appointment in parallel
-        const [callRes, turnsRes, attentionRes, appointmentRes] = await Promise.all([
+        // Fetch call (WITHOUT raw_payload), turns, attention items, appointment, reviews, and issue reports
+        const [
+          callRes,
+          turnsRes,
+          attentionRes,
+          appointmentRes,
+          reviewRes,
+          issuesRes,
+        ] = await Promise.all([
           supabase
             .from('calls')
             .select(
@@ -52,6 +98,16 @@ export default function CallDetail() {
             .select('call_id, patient_name, slot_start, status')
             .eq('call_id', callId)
             .maybeSingle(),
+          supabase
+            .from('call_reviews')
+            .select('call_id, reviewed_by, reviewed_at, note')
+            .eq('call_id', callId)
+            .maybeSingle(),
+          supabase
+            .from('issue_reports')
+            .select('id, call_id, reported_by, reason, status, created_at')
+            .eq('call_id', callId)
+            .order('created_at', { ascending: false }),
         ])
 
         if (!isMounted) return
@@ -70,6 +126,37 @@ export default function CallDetail() {
         setTurns(turnsRes.data || [])
         setAttentionItems(attentionRes.data || [])
         setAppointment(appointmentRes.data || null)
+        setReview(reviewRes.data || null)
+        if (reviewRes.data?.note) {
+          setNoteInput(reviewRes.data.note)
+        }
+        setIssueReports(issuesRes.data || [])
+
+        // Collect staff IDs to look up
+        const staffIds = new Set()
+        if (reviewRes.data?.reviewed_by) {
+          staffIds.add(reviewRes.data.reviewed_by)
+        }
+        for (const issue of issuesRes.data || []) {
+          if (issue.reported_by) {
+            staffIds.add(issue.reported_by)
+          }
+        }
+
+        if (staffIds.size > 0) {
+          const { data: staffData } = await supabase
+            .from('staff_profiles')
+            .select('user_id, full_name')
+            .in('user_id', Array.from(staffIds))
+
+          if (isMounted && staffData) {
+            const map = {}
+            for (const s of staffData) {
+              map[s.user_id] = s.full_name
+            }
+            setStaffMap(map)
+          }
+        }
       } catch (err) {
         if (!isMounted) return
         console.error('Failed to load call detail:', err.message || err)
@@ -87,6 +174,190 @@ export default function CallDetail() {
       isMounted = false
     }
   }, [callId])
+
+  // Part C: Audit log for view_call (once per page visit)
+  useEffect(() => {
+    if (!call || !userId || hasAuditedViewRef.current) return
+    hasAuditedViewRef.current = true
+
+    // Insert view_call into audit_log; silently ignore any error; NEVER use .select()
+    supabase
+      .from('audit_log')
+      .insert({
+        action: 'view_call',
+        call_id: Number(call.call_id),
+        user_id: userId,
+        details: 'Opened call detail and full phone number',
+      })
+      .then(() => {})
+      .catch(() => {})
+  }, [call, userId])
+
+  // Part C: Audit log for play_recording (once per page visit)
+  const handleAudioPlay = () => {
+    if (hasAuditedPlayRef.current || !userId || !callId) return
+    hasAuditedPlayRef.current = true
+
+    // Insert play_recording into audit_log; silently ignore any error; NEVER use .select()
+    supabase
+      .from('audit_log')
+      .insert({
+        action: 'play_recording',
+        call_id: Number(callId),
+        user_id: userId,
+        details: 'Played recording audio',
+      })
+      .then(() => {})
+      .catch(() => {})
+  }
+
+  // Part A: Mark reviewed
+  const handleMarkReviewed = async () => {
+    if (!userId) return
+    setIsSavingReview(true)
+    setReviewError(null)
+
+    try {
+      const nowIso = new Date().toISOString()
+      const { data, error: upsertError } = await supabase
+        .from('call_reviews')
+        .upsert(
+          {
+            call_id: Number(callId),
+            reviewed_by: userId,
+            reviewed_at: nowIso,
+            note: review?.note || null,
+          },
+          { onConflict: 'call_id' }
+        )
+        .select()
+
+      if (upsertError || !data || data.length === 0) {
+        throw upsertError || new Error('Could not save review.')
+      }
+
+      const saved = data[0]
+      setReview(saved)
+
+      // Ensure staff name is populated in map
+      if (!staffMap[userId]) {
+        const { data: prof } = await supabase
+          .from('staff_profiles')
+          .select('user_id, full_name')
+          .eq('user_id', userId)
+          .maybeSingle()
+        if (prof) {
+          setStaffMap((prev) => ({ ...prev, [prof.user_id]: prof.full_name }))
+        }
+      }
+    } catch (err) {
+      console.error('Failed to mark reviewed:', err.message || err)
+      setReviewError('Could not mark as reviewed. Please try again.')
+    } finally {
+      setIsSavingReview(false)
+    }
+  }
+
+  // Part A: Add or change note (saving a note also marks the call reviewed)
+  const handleSaveNote = async () => {
+    if (!userId) return
+    setIsSavingReview(true)
+    setReviewError(null)
+
+    try {
+      const nowIso = new Date().toISOString()
+      const trimmedNote = noteInput.trim() || null
+
+      const { data, error: upsertError } = await supabase
+        .from('call_reviews')
+        .upsert(
+          {
+            call_id: Number(callId),
+            reviewed_by: userId,
+            reviewed_at: nowIso,
+            note: trimmedNote,
+          },
+          { onConflict: 'call_id' }
+        )
+        .select()
+
+      if (upsertError || !data || data.length === 0) {
+        throw upsertError || new Error('Could not save note.')
+      }
+
+      const saved = data[0]
+      setReview(saved)
+      setIsEditingNote(false)
+
+      if (!staffMap[userId]) {
+        const { data: prof } = await supabase
+          .from('staff_profiles')
+          .select('user_id, full_name')
+          .eq('user_id', userId)
+          .maybeSingle()
+        if (prof) {
+          setStaffMap((prev) => ({ ...prev, [prof.user_id]: prof.full_name }))
+        }
+      }
+    } catch (err) {
+      console.error('Failed to save note:', err.message || err)
+      setReviewError('Could not save note. Please try again.')
+    } finally {
+      setIsSavingReview(false)
+    }
+  }
+
+  // Part A: Report issue
+  const handleReportIssue = async (e) => {
+    e.preventDefault()
+    if (!userId) return
+    const reason = issueReason.trim()
+    if (!reason) {
+      setIssueError('Please enter what went wrong.')
+      return
+    }
+
+    setIsSubmittingIssue(true)
+    setIssueError(null)
+
+    try {
+      const { data, error: insertError } = await supabase
+        .from('issue_reports')
+        .insert({
+          call_id: Number(callId),
+          reported_by: userId,
+          reason,
+          status: 'open',
+        })
+        .select()
+
+      if (insertError || !data || data.length === 0) {
+        throw insertError || new Error('Could not report issue.')
+      }
+
+      const newIssue = data[0]
+      setIssueReports((prev) => [newIssue, ...prev])
+      setIssueSuccess(`Issue reported on ${formatIST(newIssue.created_at)}`)
+      setIssueReason('')
+      setIsReportingOpen(false)
+
+      if (!staffMap[userId]) {
+        const { data: prof } = await supabase
+          .from('staff_profiles')
+          .select('user_id, full_name')
+          .eq('user_id', userId)
+          .maybeSingle()
+        if (prof) {
+          setStaffMap((prev) => ({ ...prev, [prof.user_id]: prof.full_name }))
+        }
+      }
+    } catch (err) {
+      console.error('Failed to report issue:', err.message || err)
+      setIssueError('Could not report issue. Please try again.')
+    } finally {
+      setIsSubmittingIssue(false)
+    }
+  }
 
   if (loading) {
     return (
@@ -129,6 +400,7 @@ export default function CallDetail() {
   const outcome = getOutcome(call, appointment, attentionItems)
   const openAttentionItems = attentionItems.filter((item) => item.status === 'open')
   const variables = call.variables || {}
+  const reviewerName = review?.reviewed_by ? staffMap[review.reviewed_by] || 'Staff' : null
 
   return (
     <div className="page-container">
@@ -200,6 +472,226 @@ export default function CallDetail() {
             </ul>
           </div>
         )}
+      </section>
+
+      {/* Part A: Review & Quality Section */}
+      <section className="card detail-section-card review-actions-card">
+        <h2 className="section-title">Review & Quality</h2>
+
+        {reviewError && (
+          <div className="alert alert-error" role="alert">
+            {reviewError}
+          </div>
+        )}
+
+        {/* Review Status Display */}
+        {review ? (
+          <div className="reviewed-status-box">
+            <div className="reviewed-banner">
+              <span className="reviewed-icon">✓</span>
+              <span>
+                Reviewed by <strong>{reviewerName}</strong> on{' '}
+                <strong>{formatIST(review.reviewed_at)}</strong>
+              </span>
+            </div>
+
+            {review.note && !isEditingNote && (
+              <div className="saved-note-container">
+                <span className="saved-note-label">Review note:</span>
+                <p className="saved-note-text">{review.note}</p>
+              </div>
+            )}
+
+            {!isEditingNote && (
+              <div className="review-btn-row">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsEditingNote(true)
+                    setNoteInput(review.note || '')
+                  }}
+                  className="btn btn-secondary btn-edit-note"
+                >
+                  {review.note ? 'Change note' : 'Add note'}
+                </button>
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="not-reviewed-box">
+            <p className="not-reviewed-text">This call has not been reviewed yet.</p>
+            {!isEditingNote && (
+              <div className="review-btn-row">
+                <button
+                  type="button"
+                  onClick={handleMarkReviewed}
+                  disabled={isSavingReview}
+                  className="btn btn-primary btn-mark-reviewed"
+                >
+                  {isSavingReview ? 'Saving...' : 'Mark reviewed'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsEditingNote(true)
+                    setNoteInput('')
+                  }}
+                  disabled={isSavingReview}
+                  className="btn btn-secondary btn-add-note"
+                >
+                  Add note
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Inline Note Editor */}
+        {isEditingNote && (
+          <div className="note-editor-box">
+            <label htmlFor="review-note-input" className="filter-label">
+              Review Note (saving also marks call as reviewed)
+            </label>
+            <textarea
+              id="review-note-input"
+              value={noteInput}
+              onChange={(e) => setNoteInput(e.target.value)}
+              placeholder="e.g. Good handling of cancellation request..."
+              rows={3}
+              className="filter-input review-note-textarea"
+              disabled={isSavingReview}
+            />
+            <div className="note-btn-row">
+              <button
+                type="button"
+                onClick={handleSaveNote}
+                disabled={isSavingReview}
+                className="btn btn-primary btn-save-note"
+              >
+                {isSavingReview ? 'Saving note...' : 'Save note'}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsEditingNote(false)
+                  setNoteInput(review?.note || '')
+                }}
+                disabled={isSavingReview}
+                className="btn btn-secondary"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Issue Reporting Divider */}
+        <hr className="section-divider" />
+
+        <div className="issue-reporting-section">
+          <div className="issue-section-top">
+            <h3 className="sub-section-title">Report Issue</h3>
+            {!isReportingOpen && (
+              <button
+                type="button"
+                onClick={() => {
+                  setIsReportingOpen(true)
+                  setIssueError(null)
+                  setIssueSuccess(null)
+                }}
+                className="btn btn-secondary btn-report-issue"
+              >
+                ⚠️ Report issue
+              </button>
+            )}
+          </div>
+
+          {issueSuccess && (
+            <div className="alert alert-success" role="status">
+              ✓ {issueSuccess}
+            </div>
+          )}
+
+          {issueError && (
+            <div className="alert alert-error" role="alert">
+              {issueError}
+            </div>
+          )}
+
+          {/* Issue Reporting Form */}
+          {isReportingOpen && (
+            <form onSubmit={handleReportIssue} className="issue-report-form">
+              <div className="form-field">
+                <label htmlFor="issue-reason" className="filter-label">
+                  What went wrong? <span className="required-mark">*</span>
+                </label>
+                <textarea
+                  id="issue-reason"
+                  required
+                  value={issueReason}
+                  onChange={(e) => setIssueReason(e.target.value)}
+                  placeholder="Describe the issue with the bot response or appointment..."
+                  rows={3}
+                  className="filter-input issue-textarea"
+                  disabled={isSubmittingIssue}
+                />
+              </div>
+
+              <div className="issue-btn-row">
+                <button
+                  type="submit"
+                  disabled={isSubmittingIssue}
+                  className="btn btn-primary btn-submit-issue"
+                >
+                  {isSubmittingIssue ? 'Submitting...' : 'Submit issue'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsReportingOpen(false)}
+                  disabled={isSubmittingIssue}
+                  className="btn btn-secondary"
+                >
+                  Cancel
+                </button>
+              </div>
+            </form>
+          )}
+
+          {/* Existing Issue Reports */}
+          {issueReports.length > 0 && (
+            <div className="issue-reports-list">
+              <h4 className="issue-list-heading">
+                Reported Issues ({issueReports.length})
+              </h4>
+              <div className="issue-cards-wrapper">
+                {issueReports.map((item) => {
+                  const reporter = staffMap[item.reported_by] || 'Staff'
+                  const isClosed = item.status === 'closed'
+                  return (
+                    <div key={item.id} className="issue-item-card">
+                      <div className="issue-item-top">
+                        <span
+                          className={`badge ${
+                            isClosed ? 'status-badge-green' : 'status-badge-orange'
+                          }`}
+                        >
+                          {item.status || 'open'}
+                        </span>
+                        <span className="issue-time">
+                          {formatIST(item.created_at)}
+                        </span>
+                      </div>
+                      <p className="issue-reason-text">{item.reason}</p>
+                      <span className="issue-reporter">
+                        Reported by: <strong>{reporter}</strong>
+                      </span>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+        </div>
       </section>
 
       {/* Summary Card */}
@@ -276,7 +768,7 @@ export default function CallDetail() {
         </div>
       </section>
 
-      {/* Recording Card */}
+      {/* Recording Card (triggers play_recording audit on play) */}
       <section className="card detail-section-card">
         <h2 className="section-title">Recording</h2>
         {call.recording_url ? (
@@ -285,6 +777,7 @@ export default function CallDetail() {
               controls
               preload="none"
               src={call.recording_url}
+              onPlay={handleAudioPlay}
               className="audio-player"
             >
               Your browser does not support audio playback.
@@ -338,4 +831,3 @@ export default function CallDetail() {
     </div>
   )
 }
-

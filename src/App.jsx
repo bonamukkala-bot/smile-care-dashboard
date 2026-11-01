@@ -148,7 +148,10 @@ export default function App() {
     <Routes>
       <Route path="/" element={<Home profile={profile} />} />
       <Route path="/calls" element={<CallLog />} />
-      <Route path="/calls/:callId" element={<CallDetail />} />
+      <Route
+        path="/calls/:callId"
+        element={<CallDetail currentUserId={session?.user?.id} />}
+      />
       <Route
         path="/attention"
         element={<NeedsAttention currentUserId={session?.user?.id} />}

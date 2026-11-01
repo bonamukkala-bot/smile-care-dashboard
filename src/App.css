@@ -1747,3 +1747,305 @@
   opacity: 0.85;
 }
 
+/* Call Log New Filter Styles & Badges */
+.filter-select {
+  cursor: pointer;
+  appearance: auto;
+  background-color: #ffffff;
+}
+
+.search-input-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.search-input-row .search-input {
+  flex: 1 1 240px;
+}
+
+.btn-clear-all {
+  white-space: nowrap;
+  min-height: 48px;
+  padding: 0 18px;
+}
+
+.call-card-badges {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.review-badge {
+  background-color: #ecfdf5;
+  color: #047857;
+  border: 1.5px solid #a7f3d0;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.mt-16 {
+  margin-top: 16px;
+}
+
+/* Call Detail Review & Quality Section */
+.review-actions-card {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.alert-success {
+  background-color: #ecfdf5;
+  border: 1.5px solid #a7f3d0;
+  color: #065f46;
+}
+
+.reviewed-status-box {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.reviewed-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 18px;
+  background-color: #ecfdf5;
+  border: 1.5px solid #a7f3d0;
+  border-radius: var(--radius);
+  color: #065f46;
+  font-size: 18px;
+  line-height: 1.4;
+}
+
+.reviewed-icon {
+  font-size: 20px;
+  font-weight: 900;
+  color: #059669;
+}
+
+.not-reviewed-box {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.not-reviewed-text {
+  font-size: 18px;
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+.saved-note-container {
+  background-color: #f8fafc;
+  border: 1.5px solid var(--border-light);
+  border-radius: var(--radius);
+  padding: 14px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.saved-note-label {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.saved-note-text {
+  font-size: 18px;
+  line-height: 1.5;
+  color: var(--text-primary);
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.review-btn-row {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.btn-mark-reviewed {
+  min-height: 48px;
+  padding: 0 24px;
+}
+
+.btn-edit-note,
+.btn-add-note {
+  min-height: 48px;
+  padding: 0 20px;
+}
+
+/* Note Editor */
+.note-editor-box {
+  background-color: #f8fafc;
+  border: 1.5px solid var(--border-color);
+  border-radius: var(--radius);
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.review-note-textarea {
+  min-height: 84px;
+  padding: 12px 14px;
+  font-family: inherit;
+  resize: vertical;
+}
+
+.note-btn-row {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.btn-save-note {
+  min-height: 48px;
+  padding: 0 24px;
+}
+
+.section-divider {
+  border: none;
+  border-top: 1.5px solid var(--border-light);
+  margin: 10px 0;
+}
+
+/* Issue Reporting */
+.issue-reporting-section {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.issue-section-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.sub-section-title {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.btn-report-issue {
+  min-height: 48px;
+  padding: 0 20px;
+  font-weight: 700;
+  border-color: #f87171;
+  color: #b91c1c;
+  background-color: #ffffff;
+}
+
+.btn-report-issue:hover {
+  background-color: #fef2f2;
+}
+
+.issue-report-form {
+  background-color: #fff1f2;
+  border: 1.5px solid #fecdd3;
+  border-radius: var(--radius);
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.required-mark {
+  color: #dc2626;
+  font-weight: 800;
+}
+
+.issue-textarea {
+  min-height: 90px;
+  padding: 12px 14px;
+  font-family: inherit;
+  resize: vertical;
+  background-color: #ffffff;
+}
+
+.issue-btn-row {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.btn-submit-issue {
+  background-color: #dc2626;
+  min-height: 48px;
+  padding: 0 24px;
+}
+
+.btn-submit-issue:hover:not(:disabled) {
+  background-color: #b91c1c;
+}
+
+.issue-reports-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 6px;
+}
+
+.issue-list-heading {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.issue-cards-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.issue-item-card {
+  background-color: #fff1f2;
+  border: 1.5px solid #fecdd3;
+  border-radius: var(--radius);
+  padding: 14px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  text-align: left;
+}
+
+.issue-item-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.issue-time {
+  font-size: 14px;
+  color: var(--text-muted);
+}
+
+.issue-reason-text {
+  font-size: 18px;
+  line-height: 1.4;
+  color: var(--text-primary);
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.issue-reporter {
+  font-size: 15px;
+  color: var(--text-secondary);
+}
+
+
