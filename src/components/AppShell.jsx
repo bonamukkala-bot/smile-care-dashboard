@@ -195,9 +195,8 @@ export default function AppShell({ profile, onLogout, loggingOut, children }) {
               <AlertCircle size={22} className="mobile-nav-icon" />
               {openAttentionCount > 0 && (
                 <span
-                  className={`mobile-nav-badge ${
-                    hasEmergency ? 'badge-emergency' : 'badge-attention'
-                  }`}
+                  className={`mobile-nav-badge ${hasEmergency ? 'badge-emergency' : 'badge-attention'
+                    }`}
                 >
                   {openAttentionCount}
                 </span>

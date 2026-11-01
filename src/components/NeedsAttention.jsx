@@ -137,12 +137,11 @@ export default function NeedsAttention({ currentUserId }) {
     return counts
   }, [items])
 
-  // Auto-reset activeFilter to 'all' if selected type is no longer present
-  useEffect(() => {
-    if (activeFilter !== 'all' && (!typeCounts[activeFilter] || typeCounts[activeFilter] === 0)) {
-      setActiveFilter('all')
-    }
-  }, [typeCounts, activeFilter])
+  // Fallback to 'all' if selected type is no longer present in typeCounts
+  const effectiveFilter =
+    activeFilter !== 'all' && (!typeCounts[activeFilter] || typeCounts[activeFilter] === 0)
+      ? 'all'
+      : activeFilter
 
   // Split items into Emergencies and Others (oldest first within each)
   const { allEmergencies, allOthers } = useMemo(() => {
@@ -166,12 +165,12 @@ export default function NeedsAttention({ currentUserId }) {
   const hasAnyEmergency = allEmergencies.length > 0
   const totalOpenCount = items.length
 
-  // Filter items based on activeFilter and searchQuery
+  // Filter items based on effectiveFilter and searchQuery
   const filterList = useCallback(
     (list) => {
       let filtered = list
-      if (activeFilter !== 'all') {
-        filtered = filtered.filter((item) => item.type === activeFilter)
+      if (effectiveFilter !== 'all') {
+        filtered = filtered.filter((item) => item.type === effectiveFilter)
       }
 
       const q = searchQuery.trim().toLowerCase()
@@ -197,7 +196,7 @@ export default function NeedsAttention({ currentUserId }) {
       }
       return filtered
     },
-    [activeFilter, searchQuery]
+    [effectiveFilter, searchQuery]
   )
 
   const visibleEmergencies = useMemo(() => filterList(allEmergencies), [filterList, allEmergencies])
@@ -438,7 +437,7 @@ export default function NeedsAttention({ currentUserId }) {
       <AttentionFilters
         totalOpenCount={totalOpenCount}
         typeCounts={typeCounts}
-        activeFilter={activeFilter}
+        activeFilter={effectiveFilter}
         onSelectFilter={setActiveFilter}
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
