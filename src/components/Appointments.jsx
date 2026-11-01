@@ -1,20 +1,39 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { Link } from 'react-router-dom'
+import {
+  Plus,
+  ArrowLeft,
+  Info,
+  X,
+  ChevronLeft,
+  ChevronRight,
+  CalendarCheck,
+  CalendarOff,
+  AlertCircle,
+} from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import {
   getTodayIST,
   getISTDateRange,
   getISTDateKey,
   formatISTDateLabel,
-  formatSlotRange,
   getISTWeekDays,
   formatISTWeekLabel,
-  maskPhone,
-  formatAppointmentStatus,
-  getAppointmentStatusColor,
+  isSundayIST,
   formatDoctorName,
+  invokeManageAppointment,
 } from '../lib/helpers'
+import ViewSwitcher from './ViewSwitcher'
+import DayNavigator from './DayNavigator'
+import FilterPanel from './FilterPanel'
+import WeekBoard from './WeekBoard'
+import AppointmentRow from './AppointmentRow'
+import BookingCard from './BookingCard'
 import NewBookingModal from './NewBookingModal'
+import Toast from './Toast'
+
+const HIDE_SYNC_BANNER_KEY = 'smile_care_hide_booking_sync_banner'
+const VIEW_MODE_STORAGE_KEY = 'smile_care_appointments_view_mode'
 
 const STATUS_OPTIONS = [
   'booked',
@@ -26,42 +45,80 @@ const STATUS_OPTIONS = [
 ]
 
 export default function Appointments() {
-  const [viewMode, setViewMode] = useState('day') // 'day' | 'week' | 'list'
+  // 1. View Mode with sessionStorage persistence
+  const [viewMode, setViewMode] = useState(() => {
+    try {
+      const saved = sessionStorage.getItem(VIEW_MODE_STORAGE_KEY)
+      if (saved === 'day' || saved === 'week' || saved === 'list') {
+        return saved
+      }
+    } catch {
+      // Ignore sessionStorage errors
+    }
+    return 'day'
+  })
+
+  const handleViewModeChange = (mode) => {
+    setViewMode(mode)
+    try {
+      sessionStorage.setItem(VIEW_MODE_STORAGE_KEY, mode)
+    } catch {
+      // Ignore
+    }
+  }
+
+  // 2. Date state
   const [selectedDate, setSelectedDate] = useState(() => getTodayIST())
   const [showPastList, setShowPastList] = useState(false)
 
-  // Raw data
+  // 3. Raw Data
   const [appointments, setAppointments] = useState([])
   const [doctors, setDoctors] = useState({})
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [reloadKey, setReloadKey] = useState(0)
 
-  // Filters
+  // 4. Universal Filters
   const [filterStatus, setFilterStatus] = useState('all')
   const [filterSource, setFilterSource] = useState('all')
   const [filterDoctor, setFilterDoctor] = useState('all')
   const [searchQuery, setSearchQuery] = useState('')
   const [showCancelled, setShowCancelled] = useState(false)
 
-  // New Booking Modal & alert banner
+  // 5. Shared Sync Banner & Toast
+  const [showSyncBanner, setShowSyncBanner] = useState(() => {
+    try {
+      return localStorage.getItem(HIDE_SYNC_BANNER_KEY) !== 'true'
+    } catch {
+      return true
+    }
+  })
+  const [toast, setToast] = useState(null) // { message, type }
+
+  // 6. Modal & In-card mutations (for Day View BookingCards)
   const [showNewBooking, setShowNewBooking] = useState(false)
-  const [successMessage, setSuccessMessage] = useState(null)
+  const [savingId, setSavingId] = useState(null)
+  const [savingTarget, setSavingTarget] = useState(null)
+  const [saveErrors, setSaveErrors] = useState({})
+  const [confirmState, setConfirmState] = useState(null) // { apptId, targetStatus }
+
+  const isBusy = savingId !== null || confirmState !== null
+  const isBusyRef = useRef(isBusy)
 
   useEffect(() => {
-    if (!successMessage) return
-    const timer = setTimeout(() => {
-      setSuccessMessage(null)
-    }, 8000)
-    return () => clearTimeout(timer)
-  }, [successMessage])
+    isBusyRef.current = isBusy
+  }, [isBusy])
 
-  const handleNewBookingSuccess = (msg) => {
-    setSuccessMessage(msg || 'Booking added to the calendar')
-    setReloadKey((prev) => prev + 1)
+  const handleDismissSyncBanner = () => {
+    setShowSyncBanner(false)
+    try {
+      localStorage.setItem(HIDE_SYNC_BANNER_KEY, 'true')
+    } catch {
+      // Ignore
+    }
   }
 
-  // 1. Fetch doctors once on mount
+  // Fetch doctors once on mount
   useEffect(() => {
     let isMounted = true
 
@@ -84,7 +141,7 @@ export default function Appointments() {
         setDoctors(map)
       } catch (err) {
         if (!isMounted) return
-        console.error('Error fetching doctors:', err.message || err)
+        console.error('Error fetching doctors:', err?.message || err)
       }
     }
 
@@ -95,12 +152,14 @@ export default function Appointments() {
     }
   }, [])
 
-  // 2. Fetch appointments based on active view and date
+  // Fetch appointments with 60-second silent refresh
   useEffect(() => {
     let isMounted = true
 
-    async function loadAppointments() {
-      setLoading(true)
+    async function loadAppointments(isSilent = false) {
+      if (!isSilent) {
+        setLoading(true)
+      }
       setError(null)
 
       try {
@@ -111,14 +170,12 @@ export default function Appointments() {
           )
 
         if (viewMode === 'day') {
-          // Day range in IST
           const { startUTC, endUTC } = getISTDateRange(selectedDate)
           query = query
             .gte('slot_start', startUTC)
             .lte('slot_start', endUTC)
             .order('slot_start', { ascending: true })
         } else if (viewMode === 'week') {
-          // Monday to Sunday of chosen week in IST
           const weekDays = getISTWeekDays(selectedDate)
           if (weekDays.length === 7) {
             const startUTC = getISTDateRange(weekDays[0]).startUTC
@@ -130,7 +187,6 @@ export default function Appointments() {
           }
         } else if (viewMode === 'list') {
           if (showPastList) {
-            // Past 30 days up to today
             const pastDate = new Date()
             pastDate.setDate(pastDate.getDate() - 30)
             const pastStartUTC = getISTDateRange(getISTDateKey(pastDate)).startUTC
@@ -141,7 +197,6 @@ export default function Appointments() {
               .order('slot_start', { ascending: false })
               .limit(200)
           } else {
-            // Upcoming from today onward
             const todayStartUTC = getISTDateRange(getTodayIST()).startUTC
             query = query
               .gte('slot_start', todayStartUTC)
@@ -158,7 +213,7 @@ export default function Appointments() {
         setAppointments(data || [])
       } catch (err) {
         if (!isMounted) return
-        console.error('Failed to load appointments:', err.message || err)
+        console.error('Failed to load appointments:', err?.message || err)
         setError('Unable to load appointments. Please check your connection and try again.')
       } finally {
         if (isMounted) {
@@ -167,31 +222,40 @@ export default function Appointments() {
       }
     }
 
-    loadAppointments()
+    loadAppointments(false)
+
+    const interval = setInterval(() => {
+      if (isMounted && !isBusyRef.current) {
+        loadAppointments(true)
+      }
+    }, 60000)
 
     return () => {
       isMounted = false
+      clearInterval(interval)
     }
   }, [viewMode, selectedDate, showPastList, reloadKey])
 
-  // Navigation handlers for Day view
+  // Navigation handlers
   const handlePrevDay = () => {
     const d = new Date(`${selectedDate}T12:00:00+05:30`)
     d.setDate(d.getDate() - 1)
     setSelectedDate(getISTDateKey(d))
+    setConfirmState(null)
   }
 
   const handleNextDay = () => {
     const d = new Date(`${selectedDate}T12:00:00+05:30`)
     d.setDate(d.getDate() + 1)
     setSelectedDate(getISTDateKey(d))
+    setConfirmState(null)
   }
 
   const handleToday = () => {
     setSelectedDate(getTodayIST())
+    setConfirmState(null)
   }
 
-  // Navigation handlers for Week view
   const weekDays = useMemo(() => getISTWeekDays(selectedDate), [selectedDate])
 
   const handlePrevWeek = () => {
@@ -219,60 +283,65 @@ export default function Appointments() {
     setShowCancelled(false)
   }
 
-  const hasActiveFilters =
-    filterStatus !== 'all' ||
-    filterSource !== 'all' ||
-    filterDoctor !== 'all' ||
-    Boolean(searchQuery.trim()) ||
-    showCancelled
+  const activeFilterCount = useMemo(() => {
+    let count = 0
+    if (filterStatus !== 'all') count += 1
+    if (filterSource !== 'all') count += 1
+    if (filterDoctor !== 'all') count += 1
+    if (searchQuery.trim()) count += 1
+    if (showCancelled) count += 1
+    return count
+  }, [filterStatus, filterSource, filterDoctor, searchQuery, showCancelled])
 
-  // Apply filters
+  const hasActiveFilters = activeFilterCount > 0
+
+  // Filter application
   const filteredAppointments = useMemo(() => {
     const trimmed = searchQuery.trim()
     const searchLower = trimmed.toLowerCase()
     const searchDigits = trimmed.replace(/\D/g, '')
 
     return appointments.filter((appt) => {
-      // Cancelled visibility: hidden by default unless showCancelled is true or filterStatus is 'cancelled'
+      // Cancelled visibility
       if (!showCancelled && filterStatus !== 'cancelled' && appt.status === 'cancelled') {
         return false
       }
-
-      // Status filter
+      // Status
       if (filterStatus !== 'all' && appt.status !== filterStatus) {
         return false
       }
-
-      // Source filter
+      // Source
       if (filterSource !== 'all' && appt.source !== filterSource) {
         return false
       }
-
-      // Doctor filter
+      // Doctor
       if (filterDoctor !== 'all' && String(appt.doctor_id) !== String(filterDoctor)) {
         return false
       }
-
-      // Search filter (patient name OR phone digits)
+      // Search
       if (trimmed) {
         const patientName = (appt.patient_name || '').toLowerCase()
         const matchesName = patientName.includes(searchLower)
-
         const rawPhone = (appt.patient_phone || '').replace(/\D/g, '')
         const matchesPhone = searchDigits.length > 0 && rawPhone.includes(searchDigits)
-
         if (!matchesName && !matchesPhone) {
           return false
         }
       }
-
       return true
     })
   }, [appointments, filterStatus, filterSource, filterDoctor, searchQuery, showCancelled])
 
   // Groupings for views
-  // 1. Day view: Grouped by doctor
+  // 1. Day view: grouped by doctor
   const dayGroupedByDoctor = useMemo(() => {
+    const distinctDoctors = new Set(
+      filteredAppointments.map((a) => a.doctor_id || 'unknown')
+    )
+    if (distinctDoctors.size <= 1) {
+      return null
+    }
+
     const groups = {}
     for (const appt of filteredAppointments) {
       const docId = appt.doctor_id || 'unknown'
@@ -284,7 +353,7 @@ export default function Appointments() {
     return groups
   }, [filteredAppointments])
 
-  // 2. Week view: Grouped by dayKey (YYYY-MM-DD)
+  // 2. Week view: grouped by dayKey (YYYY-MM-DD)
   const weekGroupedByDay = useMemo(() => {
     const groups = {}
     for (const day of weekDays) {
@@ -299,7 +368,7 @@ export default function Appointments() {
     return groups
   }, [filteredAppointments, weekDays])
 
-  // 3. List view: Grouped by dateKey
+  // 3. List view: grouped by dateKey
   const listGroupedByDate = useMemo(() => {
     const groups = {}
     for (const appt of filteredAppointments) {
@@ -312,204 +381,250 @@ export default function Appointments() {
     return groups
   }, [filteredAppointments])
 
+  // Day View Card status action mutations
+  const executeStatusUpdate = async (apptId, newStatus) => {
+    setSavingId(apptId)
+    setSavingTarget(newStatus)
+    setSaveErrors((prev) => ({ ...prev, [apptId]: null }))
+    setConfirmState(null)
+
+    try {
+      const { data, error: updateError } = await supabase
+        .from('appointments')
+        .update({ status: newStatus })
+        .eq('id', apptId)
+        .select()
+
+      if (updateError || !data || data.length !== 1) {
+        setSaveErrors((prev) => ({
+          ...prev,
+          [apptId]: 'Could not save status. Please try again.',
+        }))
+      } else {
+        setAppointments((prev) =>
+          prev.map((a) => (a.id === apptId ? { ...a, status: newStatus } : a))
+        )
+        const labels = {
+          arrived: 'Marked as arrived',
+          completed: 'Marked as completed',
+          no_show: 'Marked as no-show',
+          booked: 'Marked as booked',
+        }
+        setToast({
+          message: labels[newStatus] || 'Status updated',
+          type: 'success',
+        })
+      }
+    } catch {
+      setSaveErrors((prev) => ({
+        ...prev,
+        [apptId]: 'Could not save status. Please try again.',
+      }))
+    } finally {
+      setSavingId(null)
+      setSavingTarget(null)
+    }
+  }
+
+  const executeCancelBooking = async (apptId) => {
+    setSavingId(apptId)
+    setSavingTarget('cancelled')
+    setSaveErrors((prev) => ({ ...prev, [apptId]: null }))
+    setConfirmState(null)
+
+    try {
+      const res = await invokeManageAppointment({
+        action: 'cancel',
+        appointment_id: Number(apptId),
+      })
+
+      if (res.ok) {
+        setAppointments((prev) =>
+          prev.map((a) => (a.id === apptId ? { ...a, status: 'cancelled' } : a))
+        )
+        setToast({
+          message: 'Booking cancelled and removed from the calendar',
+          type: 'success',
+        })
+      } else {
+        setSaveErrors((prev) => ({
+          ...prev,
+          [apptId]: res.error || 'Could not cancel booking. Please try again.',
+        }))
+      }
+    } catch (err) {
+      setSaveErrors((prev) => ({
+        ...prev,
+        [apptId]: err?.message || 'Could not cancel booking. Please try again.',
+      }))
+    } finally {
+      setSavingId(null)
+      setSavingTarget(null)
+    }
+  }
+
+  const handleStatusClick = (appt, targetStatus) => {
+    if (appt.status === targetStatus) return
+
+    if (targetStatus === 'cancelled') {
+      setConfirmState({ apptId: appt.id, targetStatus })
+      setSaveErrors((prev) => ({ ...prev, [appt.id]: null }))
+    } else {
+      executeStatusUpdate(appt.id, targetStatus)
+    }
+  }
+
+  const handleConfirmYes = (appt, targetStatus) => {
+    if (targetStatus === 'cancelled') {
+      executeCancelBooking(appt.id)
+    } else {
+      executeStatusUpdate(appt.id, targetStatus)
+    }
+  }
+
+  const handleConfirmNo = () => {
+    setConfirmState(null)
+  }
+
+  const handleNewBookingSuccess = (msg) => {
+    setToast({
+      message: msg || 'Booking added to the calendar',
+      type: 'success',
+    })
+    setReloadKey((prev) => prev + 1)
+  }
+
   const todayIST = getTodayIST()
   const isTodaySelected = selectedDate === todayIST
+  const isSunday = isSundayIST(selectedDate)
+  const isPastDay = selectedDate < todayIST
+  const formattedDateLabel = formatISTDateLabel(selectedDate)
 
-  // Render individual booking card
-  const renderBookingCard = (appt) => {
-    const timeRange = formatSlotRange(appt.slot_start)
-    const doctorName = doctors[appt.doctor_id] || 'Doctor'
-    const maskedPhone = maskPhone(appt.patient_phone)
-    const statusColor = getAppointmentStatusColor(appt.status)
-    const statusLabel = formatAppointmentStatus(appt.status)
-    const isCancelled = appt.status === 'cancelled'
-    const sourceLabel = appt.source === 'ai' ? 'AI booked' : 'Staff'
+  const nextUpApptId = useMemo(() => {
+    if (!isTodaySelected) return null
+    const now = Date.now()
+    const upcoming = appointments.find((a) => {
+      const isBookedOrConfirmed = a.status === 'booked' || a.status === 'confirmed'
+      if (!isBookedOrConfirmed) return false
+      return new Date(a.slot_start).getTime() > now
+    })
+    return upcoming ? upcoming.id : null
+  }, [isTodaySelected, appointments])
 
-    return (
-      <Link
-        key={appt.id}
-        to={`/appointments/${appt.id}`}
-        className={`card booking-card appt-item-card ${
-          isCancelled ? 'booking-card-cancelled' : ''
-        }`}
-      >
-        <div className="booking-card-top">
-          <div className="time-doctor-group">
-            <span className="booking-time-large">{timeRange}</span>
-            <span className="booking-doctor-name">with {formatDoctorName(doctorName)}</span>
-          </div>
-
-          <div className="booking-badge-group">
-            <span className="source-tag">{sourceLabel}</span>
-            <span className={`badge status-badge status-badge-${statusColor}`}>
-              {statusLabel}
-            </span>
-          </div>
-        </div>
-
-        <div className="booking-card-body">
-          <div className="patient-name-row">
-            <h4 className="patient-display-name">{appt.patient_name || 'Patient'}</h4>
-            <span className="patient-masked-phone">{maskedPhone}</span>
-          </div>
-
-          {appt.reason && (
-            <p className="booking-reason-text">
-              <span className="reason-label">Reason: </span>
-              {appt.reason}
-            </p>
-          )}
-        </div>
-
-        <div className="appt-card-footer">
-          <span className="tap-hint">Tap to view details & update status →</span>
-        </div>
-      </Link>
-    )
-  }
+  const totalBookingsText = `${filteredAppointments.length} ${
+    filteredAppointments.length === 1 ? 'booking' : 'bookings'
+  }`
 
   return (
     <div className="page-container">
+      {/* Toast alert */}
+      {toast && (
+        <Toast
+          message={toast.message}
+          type={toast.type}
+          onDismiss={() => setToast(null)}
+        />
+      )}
+
+      {/* 1. Header row */}
       <header className="page-header page-header-with-actions">
         <div className="header-left">
           <Link to="/" className="btn btn-back">
-            ← Back
+            <ArrowLeft size={18} aria-hidden="true" />
+            <span>Back</span>
           </Link>
           <h1 className="page-heading">Appointments</h1>
         </div>
         <button
           type="button"
           onClick={() => setShowNewBooking(true)}
-          className="btn btn-primary btn-new-booking"
+          className="btn btn-primary btn-new-booking-header"
+          aria-label="Create new booking"
         >
-          + New booking
+          <Plus size={20} aria-hidden="true" />
+          <span>New booking</span>
         </button>
       </header>
 
-      {/* Synchronisation note (Rule 6) */}
-      <div className="calendar-sync-notice" role="note">
-        Creating, moving and cancelling bookings updates Google Calendar. Arrived, Completed and No-show do not.
-      </div>
-
-      {/* Success alert banner */}
-      {successMessage && (
-        <div className="alert alert-success" role="status">
-          <span className="alert-success-text">✓ {successMessage}</span>
+      {/* 2. Synchronisation info note */}
+      {showSyncBanner && (
+        <div className="sync-info-banner" role="note">
+          <div className="sync-banner-content">
+            <Info size={18} className="sync-banner-icon" aria-hidden="true" />
+            <p className="sync-banner-text">
+              Creating, moving and cancelling bookings updates Google Calendar. Arrived,
+              Completed and No-show do not.
+            </p>
+          </div>
           <button
             type="button"
-            className="btn-dismiss-alert"
-            onClick={() => setSuccessMessage(null)}
-            aria-label="Dismiss message"
+            onClick={handleDismissSyncBanner}
+            className="sync-banner-dismiss-btn"
+            aria-label="Dismiss banner"
           >
-            ✕
+            <X size={16} />
           </button>
         </div>
       )}
 
-      {/* View Toggle Tabs */}
-      <section className="view-toggle-bar" aria-label="View Mode">
-        <button
-          type="button"
-          onClick={() => setViewMode('day')}
-          className={`btn view-toggle-btn ${viewMode === 'day' ? 'view-btn-active' : ''}`}
-        >
-          📅 Day view
-        </button>
-        <button
-          type="button"
-          onClick={() => setViewMode('week')}
-          className={`btn view-toggle-btn ${viewMode === 'week' ? 'view-btn-active' : ''}`}
-        >
-          🗓️ Week view
-        </button>
-        <button
-          type="button"
-          onClick={() => setViewMode('list')}
-          className={`btn view-toggle-btn ${viewMode === 'list' ? 'view-btn-active' : ''}`}
-        >
-          📋 List view
-        </button>
-      </section>
+      {/* 3. View Switcher Tabs (Day view, Week view, List view) */}
+      <ViewSwitcher
+        viewMode={viewMode}
+        onChangeView={handleViewModeChange}
+      />
 
-      {/* Date Navigation depending on View Mode */}
+      {/* 4. Date Navigators based on View Mode */}
       {viewMode === 'day' && (
-        <section className="card date-switcher-card" aria-label="Day Navigation">
-          <div className="date-nav-buttons">
-            <button
-              type="button"
-              onClick={handlePrevDay}
-              className="btn btn-secondary btn-date-step"
-            >
-              ← Previous day
-            </button>
-            <button
-              type="button"
-              onClick={handleToday}
-              className={`btn btn-secondary btn-today ${
-                isTodaySelected ? 'btn-today-active' : ''
-              }`}
-            >
-              Today
-            </button>
-            <button
-              type="button"
-              onClick={handleNextDay}
-              className="btn btn-secondary btn-date-step"
-            >
-              Next day →
-            </button>
-          </div>
-
-          <div className="date-display-row">
-            <div className="date-label-badge">
-              <span className="current-date-text">{formatISTDateLabel(selectedDate)}</span>
-              {isTodaySelected && <span className="today-chip">Today</span>}
-            </div>
-            <input
-              type="date"
-              value={selectedDate}
-              onChange={(e) => {
-                if (e.target.value) setSelectedDate(e.target.value)
-              }}
-              className="filter-input date-picker-input"
-              aria-label="Pick day"
-            />
-          </div>
-        </section>
+        <DayNavigator
+          selectedDate={selectedDate}
+          todayIST={todayIST}
+          formattedDateLabel={formattedDateLabel}
+          onPrevDay={handlePrevDay}
+          onNextDay={handleNextDay}
+          onToday={handleToday}
+          onDateChange={(newDate) => {
+            setSelectedDate(newDate)
+            setConfirmState(null)
+          }}
+        />
       )}
 
       {viewMode === 'week' && (
-        <section className="card date-switcher-card" aria-label="Week Navigation">
-          <div className="date-nav-buttons">
+        <section className="card week-nav-card" aria-label="Week Navigation">
+          <div className="week-nav-actions">
             <button
               type="button"
               onClick={handlePrevWeek}
-              className="btn btn-secondary btn-date-step"
+              className="btn btn-secondary day-step-btn"
+              aria-label="Previous week"
             >
-              ← Previous week
+              <ChevronLeft size={18} aria-hidden="true" />
+              <span>Previous week</span>
             </button>
             <button
               type="button"
               onClick={handleThisWeek}
-              className="btn btn-secondary btn-today"
+              className="btn btn-secondary day-today-btn"
             >
               This week
             </button>
             <button
               type="button"
               onClick={handleNextWeek}
-              className="btn btn-secondary btn-date-step"
+              className="btn btn-secondary day-step-btn"
+              aria-label="Next week"
             >
-              Next week →
+              <span>Next week</span>
+              <ChevronRight size={18} aria-hidden="true" />
             </button>
           </div>
 
-          <div className="date-display-row">
-            <div className="date-label-badge">
-              <span className="current-date-text">
-                {formatISTWeekLabel(weekDays[0], weekDays[6])}
-              </span>
-            </div>
+          <div className="day-nav-divider" />
+
+          <div className="week-nav-display-row">
+            <h2 className="week-nav-label-text">
+              {formatISTWeekLabel(weekDays[0], weekDays[6])}
+            </h2>
           </div>
         </section>
       )}
@@ -544,119 +659,56 @@ export default function Appointments() {
         </section>
       )}
 
-      {/* Universal Filters Card */}
-      <section className="card filters-card" aria-label="Appointment Filters">
-        {/* Status Dropdown */}
-        <div className="filter-group">
-          <label htmlFor="appt-status-select" className="filter-label">
-            Status
-          </label>
-          <select
-            id="appt-status-select"
-            value={filterStatus}
-            onChange={(e) => setFilterStatus(e.target.value)}
-            className="filter-input filter-select"
-          >
-            <option value="all">All Statuses</option>
-            {STATUS_OPTIONS.map((st) => (
-              <option key={st} value={st}>
-                {formatAppointmentStatus(st)}
-              </option>
-            ))}
-          </select>
+      {/* 5. Universal Filter Panel */}
+      <FilterPanel
+        filterStatus={filterStatus}
+        onStatusChange={setFilterStatus}
+        filterSource={filterSource}
+        onSourceChange={setFilterSource}
+        filterDoctor={filterDoctor}
+        onDoctorChange={setFilterDoctor}
+        doctors={doctors}
+        searchQuery={searchQuery}
+        onSearchChange={setSearchQuery}
+        showCancelled={showCancelled}
+        onShowCancelledChange={setShowCancelled}
+        hasActiveFilters={hasActiveFilters}
+        activeFilterCount={activeFilterCount}
+        onClearFilters={handleClearFilters}
+        statusOptions={STATUS_OPTIONS}
+      />
+
+      {/* 6. Total Bookings Divider Row (for Day & List views) */}
+      {viewMode !== 'week' && (
+        <div className="bookings-count-divider-row">
+          <span className="bookings-count-label">{totalBookingsText}</span>
+          <div className="count-hairline" />
         </div>
+      )}
 
-        {/* Source Dropdown */}
-        <div className="filter-group">
-          <label htmlFor="appt-source-select" className="filter-label">
-            Source
-          </label>
-          <select
-            id="appt-source-select"
-            value={filterSource}
-            onChange={(e) => setFilterSource(e.target.value)}
-            className="filter-input filter-select"
-          >
-            <option value="all">All Sources</option>
-            <option value="ai">AI booked</option>
-            <option value="staff">Staff</option>
-          </select>
-        </div>
-
-        {/* Doctor Dropdown */}
-        <div className="filter-group">
-          <label htmlFor="appt-doctor-select" className="filter-label">
-            Doctor
-          </label>
-          <select
-            id="appt-doctor-select"
-            value={filterDoctor}
-            onChange={(e) => setFilterDoctor(e.target.value)}
-            className="filter-input filter-select"
-          >
-            <option value="all">All Doctors</option>
-            {Object.entries(doctors).map(([id, name]) => (
-              <option key={id} value={id}>
-                {formatDoctorName(name)}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        {/* Search Input */}
-        <div className="filter-group search-filter-group">
-          <label htmlFor="appt-search-input" className="filter-label">
-            Search Patient or Phone
-          </label>
-          <input
-            id="appt-search-input"
-            type="text"
-            placeholder="Search by name or digits..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="filter-input search-input"
-          />
-        </div>
-
-        {/* Show Cancelled & Clear Filters */}
-        <div className="filter-group show-cancelled-group">
-          <label className="checkbox-label">
-            <input
-              type="checkbox"
-              checked={showCancelled}
-              onChange={(e) => setShowCancelled(e.target.checked)}
-              className="checkbox-input"
-            />
-            <span>Show cancelled</span>
-          </label>
-
-          {hasActiveFilters && (
-            <button
-              type="button"
-              onClick={handleClearFilters}
-              className="btn btn-secondary btn-clear-filters"
-            >
-              Clear filters
-            </button>
-          )}
-        </div>
-      </section>
-
-      {/* Main Content Area */}
+      {/* 7. Main Content Area */}
       <main className="appointments-content">
+        {/* Loading Skeletons */}
         {loading && (
-          <div className="loading-card">
-            <div className="spinner" aria-hidden="true" />
-            <p className="loading-text">Loading appointments...</p>
+          <div className="bookings-skeleton-list" aria-busy="true" aria-label="Loading appointments">
+            <div className="skeleton-card skeleton-booking-card" />
+            <div className="skeleton-card skeleton-booking-card" />
+            <div className="skeleton-card skeleton-booking-card" />
           </div>
         )}
 
+        {/* Error State */}
         {!loading && error && (
-          <div className="card error-card">
+          <div className="card error-card-modern" role="alert">
+            <AlertCircle size={28} className="error-icon" aria-hidden="true" />
             <p className="error-text">{error}</p>
             <button
               type="button"
-              onClick={() => setReloadKey((k) => k + 1)}
+              onClick={() => {
+                setLoading(true)
+                setError(null)
+                setReloadKey((prev) => prev + 1)
+              }}
               className="btn btn-primary"
             >
               Try Again
@@ -664,89 +716,154 @@ export default function Appointments() {
           </div>
         )}
 
-        {!loading && !error && filteredAppointments.length === 0 && (
-          <div className="card empty-card">
-            <p className="empty-title">
-              {viewMode === 'day' ? 'No bookings for this day' : 'No bookings found'}
-            </p>
+        {/* Empty States for Day View */}
+        {!loading && !error && appointments.length === 0 && viewMode === 'day' && isSunday && (
+          <div className="card empty-bookings-card" role="status">
+            <div className="empty-icon-tile">
+              <CalendarOff size={32} className="empty-tile-icon" aria-hidden="true" />
+            </div>
+            <h3 className="empty-title">The clinic is closed on Sundays.</h3>
             <p className="empty-subtitle">
-              {hasActiveFilters
-                ? 'Try adjusting your filters or search query.'
-                : 'There are no appointments scheduled for this period.'}
+              Regular operating hours are Monday through Saturday.
             </p>
-            {hasActiveFilters && (
+          </div>
+        )}
+
+        {!loading && !error && appointments.length === 0 && viewMode === 'day' && !isSunday && (
+          <div className="card empty-bookings-card" role="status">
+            <div className="empty-icon-tile">
+              <CalendarCheck size={32} className="empty-tile-icon" aria-hidden="true" />
+            </div>
+            <h3 className="empty-title">No bookings for this day</h3>
+            <p className="empty-subtitle">
+              There are no appointments scheduled for {formattedDateLabel}.
+            </p>
+            {!isPastDay && (
               <button
                 type="button"
-                onClick={handleClearFilters}
-                className="btn btn-secondary mt-16"
+                onClick={() => setShowNewBooking(true)}
+                className="btn btn-primary btn-empty-new-booking"
               >
-                Clear filters
+                <Plus size={18} aria-hidden="true" />
+                <span>+ New booking</span>
               </button>
             )}
           </div>
         )}
 
-        {/* 1. Day View Content (Grouped by Doctor) */}
+        {/* Empty Filter State (Appointments exist but filtered out) */}
+        {!loading &&
+          !error &&
+          appointments.length > 0 &&
+          filteredAppointments.length === 0 && (
+            <div className="card empty-filter-card" role="status">
+              <p className="empty-filter-title">No appointments match your filters</p>
+              <button
+                type="button"
+                onClick={handleClearFilters}
+                className="btn btn-secondary btn-clear-filter"
+              >
+                Clear filters
+              </button>
+            </div>
+          )}
+
+        {/* 1. Day View Content */}
         {!loading && !error && filteredAppointments.length > 0 && viewMode === 'day' && (
-          <div className="day-view-container">
-            {Object.keys(dayGroupedByDoctor).map((docId) => {
-              const docName = doctors[docId] || 'Doctor'
-              const docBookings = dayGroupedByDoctor[docId] || []
-              return (
-                <section key={docId} className="doctor-section">
-                  <div className="doctor-section-header">
-                    <h2 className="doctor-group-heading">
-                      👨‍⚕️ {formatDoctorName(docName)} ({docBookings.length})
-                    </h2>
-                  </div>
-                  <div className="bookings-list">
-                    {docBookings.map((appt) => renderBookingCard(appt))}
-                  </div>
-                </section>
-              )
-            })}
+          <div className="bookings-cards-container">
+            {dayGroupedByDoctor ? (
+              // Multiple doctors: grouped with headings
+              Object.entries(dayGroupedByDoctor).map(([docId, docAppts]) => {
+                const docName = doctors[docId] || 'Doctor'
+                const formattedDoctor = formatDoctorName(docName)
+
+                return (
+                  <section key={docId} className="doctor-bookings-group">
+                    <div className="doctor-group-header">
+                      <h3 className="doctor-group-title">{formattedDoctor}</h3>
+                      <span className="doctor-group-count">
+                        {docAppts.length} {docAppts.length === 1 ? 'booking' : 'bookings'}
+                      </span>
+                    </div>
+
+                    <div className="bookings-cards-list">
+                      {docAppts.map((appt) => {
+                        const isNextUp = isTodaySelected && appt.id === nextUpApptId
+                        const isPastUnfinished =
+                          isTodaySelected &&
+                          (appt.status === 'booked' || appt.status === 'confirmed') &&
+                          new Date(appt.slot_start).getTime() < Date.now()
+
+                        return (
+                          <BookingCard
+                            key={appt.id}
+                            appointment={appt}
+                            doctorName={docName}
+                            isNextUp={isNextUp}
+                            isPastUnfinished={isPastUnfinished}
+                            isSaving={savingId === appt.id}
+                            savingTarget={savingTarget}
+                            isConfirming={confirmState?.apptId === appt.id}
+                            confirmTarget={confirmState?.targetStatus}
+                            saveError={saveErrors[appt.id]}
+                            onStatusClick={handleStatusClick}
+                            onConfirmYes={handleConfirmYes}
+                            onConfirmNo={handleConfirmNo}
+                          />
+                        )
+                      })}
+                    </div>
+                  </section>
+                )
+              })
+            ) : (
+              // Single doctor: direct list without doctor heading
+              <div className="bookings-cards-list">
+                {filteredAppointments.map((appt) => {
+                  const docName = doctors[appt.doctor_id] || 'Doctor'
+                  const isNextUp = isTodaySelected && appt.id === nextUpApptId
+                  const isPastUnfinished =
+                    isTodaySelected &&
+                    (appt.status === 'booked' || appt.status === 'confirmed') &&
+                    new Date(appt.slot_start).getTime() < Date.now()
+
+                  return (
+                    <BookingCard
+                      key={appt.id}
+                      appointment={appt}
+                      doctorName={docName}
+                      isNextUp={isNextUp}
+                      isPastUnfinished={isPastUnfinished}
+                      isSaving={savingId === appt.id}
+                      savingTarget={savingTarget}
+                      isConfirming={confirmState?.apptId === appt.id}
+                      confirmTarget={confirmState?.targetStatus}
+                      saveError={saveErrors[appt.id]}
+                      onStatusClick={handleStatusClick}
+                      onConfirmYes={handleConfirmYes}
+                      onConfirmNo={handleConfirmNo}
+                    />
+                  )
+                })}
+              </div>
+            )}
           </div>
         )}
 
-        {/* 2. Week View Content (Monday to Sunday) */}
+        {/* 2. Week View Content */}
         {!loading && !error && viewMode === 'week' && (
-          <div className="week-view-container">
-            {weekDays.map((dayKey) => {
-              const dayBookings = weekGroupedByDay[dayKey] || []
-              const dayDateLabel = formatISTDateLabel(dayKey)
-              const isToday = dayKey === todayIST
-
-              return (
-                <section
-                  key={dayKey}
-                  className={`card week-day-section ${
-                    isToday ? 'week-day-today' : ''
-                  }`}
-                >
-                  <div className="week-day-header">
-                    <div className="week-day-title-row">
-                      <h3 className="week-day-title">{dayDateLabel}</h3>
-                      {isToday && <span className="today-chip">Today</span>}
-                    </div>
-                    <span className="week-day-count-badge">
-                      {dayBookings.length} {dayBookings.length === 1 ? 'booking' : 'bookings'}
-                    </span>
-                  </div>
-
-                  {dayBookings.length === 0 ? (
-                    <p className="week-day-empty-text">No bookings</p>
-                  ) : (
-                    <div className="bookings-list mt-12">
-                      {dayBookings.map((appt) => renderBookingCard(appt))}
-                    </div>
-                  )}
-                </section>
-              )
-            })}
-          </div>
+          <WeekBoard
+            weekDays={weekDays}
+            weekGroupedByDay={weekGroupedByDay}
+            todayIST={todayIST}
+            onSelectDay={(dayKey) => {
+              setSelectedDate(dayKey)
+              handleViewModeChange('day')
+            }}
+          />
         )}
 
-        {/* 3. List View Content (Grouped by Date) */}
+        {/* 3. List View Content */}
         {!loading && !error && filteredAppointments.length > 0 && viewMode === 'list' && (
           <div className="list-view-container">
             {Object.keys(listGroupedByDate).map((dateKey) => {
@@ -755,18 +872,30 @@ export default function Appointments() {
               const isToday = dateKey === todayIST
 
               return (
-                <section key={dateKey} className="list-date-group">
-                  <div className="list-date-header">
-                    <h3 className="list-date-title">
-                      {dateLabel} {isToday ? '(Today)' : ''}
+                <section key={dateKey} className="list-date-section">
+                  <header className="list-sticky-date-header">
+                    <h3 className="list-date-heading">
+                      {dateLabel}
+                      {isToday && (
+                        <span className="today-badge-pill list-today-pill">
+                          <span className="today-dot" aria-hidden="true" />
+                          TODAY
+                        </span>
+                      )}
                     </h3>
-                    <span className="date-count-label">
+                    <span className="list-date-count">
                       {dateBookings.length} {dateBookings.length === 1 ? 'booking' : 'bookings'}
                     </span>
-                  </div>
+                  </header>
 
-                  <div className="bookings-list">
-                    {dateBookings.map((appt) => renderBookingCard(appt))}
+                  <div className="list-rows-group">
+                    {dateBookings.map((appt) => (
+                      <AppointmentRow
+                        key={appt.id}
+                        appointment={appt}
+                        doctorName={doctors[appt.doctor_id] || 'Doctor'}
+                      />
+                    ))}
                   </div>
                 </section>
               )
@@ -787,4 +916,3 @@ export default function Appointments() {
     </div>
   )
 }
-

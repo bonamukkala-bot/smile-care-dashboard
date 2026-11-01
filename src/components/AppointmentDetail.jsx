@@ -1,5 +1,26 @@
 import { useState, useEffect, useRef } from 'react'
 import { useParams, Link } from 'react-router-dom'
+import {
+  ArrowLeft,
+  Phone,
+  Copy,
+  Check,
+  ExternalLink,
+  Calendar,
+  CalendarClock,
+  CalendarCheck,
+  User,
+  Clock,
+  Sparkles,
+  UserCheck,
+  CheckCircle2,
+  UserX,
+  XCircle,
+  RotateCcw,
+  Loader2,
+  AlertCircle,
+  Plus,
+} from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import {
   formatIST,
@@ -8,8 +29,13 @@ import {
   getAppointmentStatusColor,
   invokeManageAppointment,
   formatDoctorName,
+  getISTDateKey,
+  formatISTDateLabel,
 } from '../lib/helpers'
+import StatusTrack from './StatusTrack'
 import MoveBookingModal from './MoveBookingModal'
+import NewBookingModal from './NewBookingModal'
+import Toast from './Toast'
 
 export default function AppointmentDetail({ currentUserId }) {
   const { id } = useParams()
@@ -24,26 +50,22 @@ export default function AppointmentDetail({ currentUserId }) {
 
   // Status mutation & confirmation states
   const [isSaving, setIsSaving] = useState(false)
+  const [savingTarget, setSavingTarget] = useState(null)
   const [saveError, setSaveError] = useState(null)
   const [confirmTarget, setConfirmTarget] = useState(null) // 'no_show' | 'cancelled' | 'booked' | null
 
-  // Success message banner state
-  const [successMessage, setSuccessMessage] = useState(null)
+  // Shared toast state
+  const [toast, setToast] = useState(null) // { message, type }
 
-  // Move Booking Modal state
+  // Modals state
   const [showMoveModal, setShowMoveModal] = useState(false)
+  const [showNewBooking, setShowNewBooking] = useState(false)
 
-  // Part 6: Audit log once per page visit
+  // Copy phone state
+  const [copied, setCopied] = useState(false)
+
+  // Audit log once per page visit
   const hasAuditedViewRef = useRef(false)
-
-  // Auto-dismiss success banner
-  useEffect(() => {
-    if (!successMessage) return
-    const timer = setTimeout(() => {
-      setSuccessMessage(null)
-    }, 8000)
-    return () => clearTimeout(timer)
-  }, [successMessage])
 
   // Resolve user id if not provided via props
   useEffect(() => {
@@ -83,7 +105,7 @@ export default function AppointmentDetail({ currentUserId }) {
         if (apptErr) throw apptErr
 
         if (!apptData) {
-          setError('Appointment not found.')
+          setError('This booking could not be found.')
           return
         }
 
@@ -103,8 +125,8 @@ export default function AppointmentDetail({ currentUserId }) {
         }
       } catch (err) {
         if (!isMounted) return
-        console.error('Failed to load appointment detail:', err.message || err)
-        setError('Unable to load appointment details. Please try again.')
+        console.error('Failed to load appointment detail:', err?.message || err)
+        setError('Unable to load appointment details. Please check your connection.')
       } finally {
         if (isMounted) {
           setLoading(false)
@@ -119,12 +141,11 @@ export default function AppointmentDetail({ currentUserId }) {
     }
   }, [id, reloadKey])
 
-  // Part 6: Audit log for view_appointment (once per page visit)
+  // Audit log for view_appointment (once per page visit, NEVER use .select())
   useEffect(() => {
     if (!appointment || !userId || hasAuditedViewRef.current) return
     hasAuditedViewRef.current = true
 
-    // Insert view_appointment into audit_log; silently ignore any error; NEVER use .select()
     supabase
       .from('audit_log')
       .insert({
@@ -137,9 +158,21 @@ export default function AppointmentDetail({ currentUserId }) {
       .catch(() => {})
   }, [appointment, userId])
 
+  const handleCopyPhone = async () => {
+    if (!appointment?.patient_phone) return
+    try {
+      await navigator.clipboard.writeText(appointment.patient_phone)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch {
+      // Fallback
+    }
+  }
+
   // Regular status update (Arrived, Completed, No-show, Set back to Booked)
   const executeStatusUpdate = async (newStatus) => {
     setIsSaving(true)
+    setSavingTarget(newStatus)
     setSaveError(null)
     setConfirmTarget(null)
 
@@ -151,21 +184,34 @@ export default function AppointmentDetail({ currentUserId }) {
         .select()
 
       if (updateErr || !data || data.length !== 1) {
-        throw updateErr || new Error('Could not save. Please try again.')
+        throw updateErr || new Error('Could not save status. Please try again.')
       }
 
       setAppointment((prev) => ({ ...prev, status: newStatus }))
+
+      const labels = {
+        arrived: 'Marked as arrived',
+        completed: 'Marked as completed',
+        no_show: 'Marked as no-show',
+        booked: 'Status set back to Booked',
+      }
+      setToast({
+        message: labels[newStatus] || 'Status updated',
+        type: 'success',
+      })
     } catch (err) {
-      console.error('Failed to update status:', err.message || err)
-      setSaveError('Could not save. Please try again.')
+      console.error('Failed to update status:', err?.message || err)
+      setSaveError('Could not save status. Please try again.')
     } finally {
       setIsSaving(false)
+      setSavingTarget(null)
     }
   }
 
   // Cancel booking action (calls manage-appointment edge function)
   const executeCancelBooking = async () => {
     setIsSaving(true)
+    setSavingTarget('cancelled')
     setSaveError(null)
     setConfirmTarget(null)
 
@@ -177,7 +223,10 @@ export default function AppointmentDetail({ currentUserId }) {
 
       if (res.ok) {
         setAppointment((prev) => ({ ...prev, status: 'cancelled' }))
-        setSuccessMessage('Booking cancelled and removed from the calendar')
+        setToast({
+          message: 'Booking cancelled and removed from the calendar',
+          type: 'success',
+        })
       } else {
         setSaveError(res.error || 'Could not cancel booking. Please try again.')
       }
@@ -186,10 +235,10 @@ export default function AppointmentDetail({ currentUserId }) {
       setSaveError(err?.message || 'Could not cancel booking. Please try again.')
     } finally {
       setIsSaving(false)
+      setSavingTarget(null)
     }
   }
 
-  // Handle status button click
   const handleStatusButtonClick = (targetStatus) => {
     if (appointment?.status === targetStatus) return
 
@@ -207,8 +256,51 @@ export default function AppointmentDetail({ currentUserId }) {
   }
 
   const handleMoveSuccess = (msg) => {
-    setSuccessMessage(msg || 'Booking moved on the calendar')
+    setToast({
+      message: msg || 'Booking moved on the calendar',
+      type: 'success',
+    })
     setReloadKey((prev) => prev + 1)
+  }
+
+  const handleNewBookingSuccess = (msg) => {
+    setToast({
+      message: msg || 'Booking added to the calendar',
+      type: 'success',
+    })
+    setReloadKey((prev) => prev + 1)
+  }
+
+  // Helper for Telugu/unicode safe initials
+  const getInitials = (name) => {
+    if (!name || typeof name !== 'string') return ''
+    const words = name.trim().split(/\s+/).filter(Boolean)
+    if (words.length === 0) return ''
+    if (words.length === 1) {
+      return Array.from(words[0])[0].toUpperCase()
+    }
+    const first = Array.from(words[0])[0].toUpperCase()
+    const second = Array.from(words[1])[0].toUpperCase()
+    return `${first}${second}`
+  }
+
+  const renderStatusIcon = (st) => {
+    switch (st) {
+      case 'booked':
+        return <CalendarClock size={16} aria-hidden="true" />
+      case 'confirmed':
+        return <CalendarCheck size={16} aria-hidden="true" />
+      case 'arrived':
+        return <UserCheck size={16} aria-hidden="true" />
+      case 'completed':
+        return <CheckCircle2 size={16} aria-hidden="true" />
+      case 'no_show':
+        return <UserX size={16} aria-hidden="true" />
+      case 'cancelled':
+        return <XCircle size={16} aria-hidden="true" />
+      default:
+        return <CalendarClock size={16} aria-hidden="true" />
+    }
   }
 
   if (loading) {
@@ -216,12 +308,13 @@ export default function AppointmentDetail({ currentUserId }) {
       <div className="page-container">
         <header className="page-header">
           <Link to="/appointments" className="btn btn-back">
-            ← Back to Appointments
+            <ArrowLeft size={18} aria-hidden="true" />
+            <span>Back to Appointments</span>
           </Link>
         </header>
-        <div className="loading-card">
-          <div className="spinner" aria-hidden="true" />
-          <p className="loading-text">Loading appointment details...</p>
+        <div className="detail-loading-skeleton" aria-busy="true">
+          <div className="skeleton-card skeleton-detail-hero" />
+          <div className="skeleton-card skeleton-detail-actions" />
         </div>
       </div>
     )
@@ -232,14 +325,28 @@ export default function AppointmentDetail({ currentUserId }) {
       <div className="page-container">
         <header className="page-header">
           <Link to="/appointments" className="btn btn-back">
-            ← Back to Appointments
+            <ArrowLeft size={18} aria-hidden="true" />
+            <span>Back to Appointments</span>
           </Link>
         </header>
-        <div className="card error-card">
-          <p className="error-text">{error || 'Appointment not found.'}</p>
-          <Link to="/appointments" className="btn btn-primary">
-            Return to Appointments
-          </Link>
+        <div className="card error-card-modern" role="alert">
+          <AlertCircle size={32} className="error-icon" aria-hidden="true" />
+          <h2 className="error-title">This booking could not be found.</h2>
+          <p className="error-text">
+            {error || 'The requested appointment does not exist or was removed.'}
+          </p>
+          <div className="error-actions-row">
+            <button
+              type="button"
+              onClick={() => setReloadKey((k) => k + 1)}
+              className="btn btn-primary"
+            >
+              Try Again
+            </button>
+            <Link to="/appointments" className="btn btn-secondary">
+              Return to Appointments
+            </Link>
+          </div>
         </div>
       </div>
     )
@@ -249,150 +356,200 @@ export default function AppointmentDetail({ currentUserId }) {
   const statusColor = getAppointmentStatusColor(appointment.status)
   const statusLabel = formatAppointmentStatus(appointment.status)
   const timeRange = formatSlotRange(appointment.slot_start)
-  const dateFormatted = formatIST(appointment.slot_start)
+  const dateKey = getISTDateKey(appointment.slot_start)
+  const longDateStr = formatISTDateLabel(dateKey)
   const sourceLabel = appointment.source === 'ai' ? 'AI booked' : 'Staff'
-  const isBooked = appointment.status === 'booked'
   const isCancelled = appointment.status === 'cancelled'
   const canMove = appointment.status === 'booked' || appointment.status === 'confirmed'
-
-  const getConfirmPromptMessage = () => {
-    if (confirmTarget === 'no_show') return 'Mark as no-show?'
-    if (confirmTarget === 'cancelled') return 'Mark as cancelled?'
-    if (confirmTarget === 'booked') return 'Set status back to Booked?'
-    return 'Confirm status change?'
-  }
+  const initials = getInitials(appointment.patient_name)
 
   return (
-    <div className="page-container">
+    <div className="page-container detail-page-container">
+      {/* Toast alert */}
+      {toast && (
+        <Toast
+          message={toast.message}
+          type={toast.type}
+          onDismiss={() => setToast(null)}
+        />
+      )}
+
+      {/* Back Header */}
       <header className="page-header">
         <Link to="/appointments" className="btn btn-back">
-          ← Back to Appointments
+          <ArrowLeft size={18} aria-hidden="true" />
+          <span>Back to Appointments</span>
         </Link>
       </header>
 
-      {/* Synchronisation notice (Rule 6) */}
-      <div className="calendar-sync-notice" role="note">
-        Creating, moving and cancelling bookings updates Google Calendar. Arrived, Completed and No-show do not.
-      </div>
-
-      {/* Success alert banner */}
-      {successMessage && (
-        <div className="alert alert-success" role="status">
-          <span className="alert-success-text">✓ {successMessage}</span>
-          <button
-            type="button"
-            className="btn-dismiss-alert"
-            onClick={() => setSuccessMessage(null)}
-            aria-label="Dismiss message"
-          >
-            ✕
-          </button>
-        </div>
-      )}
-
       {/* Main Appointment Detail Card */}
-      <article className="card call-top-card">
-        <div className="top-header-row">
-          <div>
-            <h1 className="detail-caller-name">
-              {appointment.patient_name || 'Patient'}
-            </h1>
-            <div className="phone-row">
-              {phone ? (
-                <a
-                  href={`tel:${phone}`}
-                  className="tel-link"
-                  title="Tap to call patient"
-                >
-                  📞 {phone}
-                </a>
-              ) : (
-                <span className="tel-link-disabled">No phone number</span>
-              )}
+      <article className="card appointment-detail-card" aria-label="Appointment details">
+        {/* Header: Avatar, Name, Phone & Status */}
+        <div className="detail-hero-header">
+          <div className="detail-patient-identity">
+            <div className="patient-avatar-gradient" aria-hidden="true">
+              {initials ? initials : <User size={24} />}
+            </div>
+            <div className="detail-name-phone-col">
+              <h1 className="detail-patient-heading">
+                {appointment.patient_name || 'Patient'}
+              </h1>
+
+              <div className="detail-phone-row">
+                {phone ? (
+                  <>
+                    <a
+                      href={`tel:${phone}`}
+                      className="detail-phone-link font-mono"
+                      title="Tap to call patient"
+                      aria-label={`Call ${phone}`}
+                    >
+                      <Phone size={15} aria-hidden="true" />
+                      <span>{phone}</span>
+                    </a>
+                    <button
+                      type="button"
+                      onClick={handleCopyPhone}
+                      className="btn-phone-copy"
+                      title="Copy phone number"
+                      aria-label="Copy phone number"
+                    >
+                      {copied ? (
+                        <Check size={14} className="copy-check" aria-hidden="true" />
+                      ) : (
+                        <Copy size={14} aria-hidden="true" />
+                      )}
+                    </button>
+                  </>
+                ) : (
+                  <span className="detail-no-phone">No phone number</span>
+                )}
+              </div>
             </div>
           </div>
-          <span className={`badge status-badge status-badge-${statusColor}`}>
-            {statusLabel}
-          </span>
-        </div>
 
-        <div className="detail-meta-grid">
-          <div className="meta-box">
-            <span className="meta-label">Date & Time</span>
-            <span className="meta-value">{dateFormatted}</span>
-            <span className="meta-subvalue">({timeRange})</span>
-          </div>
-
-          <div className="meta-box">
-            <span className="meta-label">Doctor</span>
-            <span className="meta-value">{formatDoctorName(doctorName)}</span>
-          </div>
-
-          <div className="meta-box">
-            <span className="meta-label">Source</span>
-            <span className="meta-value">{sourceLabel}</span>
-          </div>
-
-          <div className="meta-box">
-            <span className="meta-label">Booked on (Created)</span>
-            <span className="meta-value">{formatIST(appointment.created_at)}</span>
+          <div className="detail-status-col">
+            <span className={`badge status-pill status-pill-${statusColor} status-pill-large`}>
+              {renderStatusIcon(appointment.status)}
+              <span>{statusLabel}</span>
+            </span>
           </div>
         </div>
 
-        {appointment.reason && (
-          <div className="detail-reason-box">
-            <span className="meta-label">Reason for visit</span>
-            <p className="detail-reason-text">{appointment.reason}</p>
+        {/* Primary Call Patient Button (if phone present) */}
+        {phone && (
+          <div className="detail-call-button-row">
+            <a
+              href={`tel:${phone}`}
+              className="btn btn-primary btn-call-primary"
+              title={`Call ${appointment.patient_name || 'patient'}`}
+            >
+              <Phone size={18} aria-hidden="true" />
+              <span>Call patient ({phone})</span>
+            </a>
           </div>
         )}
 
-        {/* Link to Call if call_id exists */}
+        {/* Status Stepper Track */}
+        <div className="detail-stepper-divider" />
+        <StatusTrack status={appointment.status} />
+        <div className="detail-stepper-divider" />
+
+        {/* 2-Column Info Grid */}
+        <div className="detail-info-grid">
+          <div className="info-tile">
+            <div className="info-tile-icon-wrap">
+              <Calendar size={18} className="tile-icon" aria-hidden="true" />
+            </div>
+            <div className="info-tile-content">
+              <span className="info-tile-label">Date & Time</span>
+              <strong className="info-tile-val">{longDateStr}</strong>
+              <span className="info-tile-subval">{timeRange} (IST)</span>
+            </div>
+          </div>
+
+          <div className="info-tile">
+            <div className="info-tile-icon-wrap">
+              <User size={18} className="tile-icon" aria-hidden="true" />
+            </div>
+            <div className="info-tile-content">
+              <span className="info-tile-label">Doctor</span>
+              <strong className="info-tile-val">{formatDoctorName(doctorName)}</strong>
+            </div>
+          </div>
+
+          <div className="info-tile">
+            <div className="info-tile-icon-wrap">
+              <Sparkles size={18} className="tile-icon" aria-hidden="true" />
+            </div>
+            <div className="info-tile-content">
+              <span className="info-tile-label">Source</span>
+              <strong className="info-tile-val">{sourceLabel}</strong>
+            </div>
+          </div>
+
+          <div className="info-tile">
+            <div className="info-tile-icon-wrap">
+              <Clock size={18} className="tile-icon" aria-hidden="true" />
+            </div>
+            <div className="info-tile-content">
+              <span className="info-tile-label">Booked on</span>
+              <strong className="info-tile-val">{formatIST(appointment.created_at)}</strong>
+            </div>
+          </div>
+        </div>
+
+        {/* Reason for Visit */}
+        {appointment.reason && (
+          <div className="detail-reason-container">
+            <span className="detail-reason-label">Reason for visit</span>
+            <p className="detail-reason-content">{appointment.reason}</p>
+          </div>
+        )}
+
+        {/* Link to Call Detail if call_id exists */}
         {appointment.call_id && (
-          <div className="call-link-wrapper">
+          <div className="detail-call-link-box">
             <Link
               to={`/calls/${appointment.call_id}`}
-              className="btn btn-secondary btn-open-call-link"
+              className="btn btn-secondary btn-open-call-detail"
             >
-              📞 Open call detail
+              <ExternalLink size={16} aria-hidden="true" />
+              <span>Open call detail</span>
             </Link>
           </div>
         )}
       </article>
 
       {/* Status Management Actions Card */}
-      <section className="card detail-section-card">
-        <h2 className="section-title">Manage Appointment Status</h2>
+      <section className="card detail-actions-card" aria-label="Update booking status">
+        <h2 className="detail-actions-heading">Update this booking</h2>
 
-        {/* Move to another time action button (Rule 2) */}
-        {canMove && (
-          <div className="move-booking-row">
-            <button
-              type="button"
-              onClick={() => setShowMoveModal(true)}
-              disabled={isSaving}
-              className="btn btn-primary btn-move-time"
-            >
-              🗓️ Move to another time
-            </button>
-          </div>
-        )}
-
+        {/* Error notice */}
         {saveError && (
-          <div className="alert alert-error" role="alert">
-            {saveError}
+          <div className="modal-alert-error mb-16" role="alert" aria-live="polite">
+            <AlertCircle size={18} className="alert-error-icon" aria-hidden="true" />
+            <span>{saveError}</span>
           </div>
         )}
 
-        {/* Confirmation prompt */}
+        {/* Inline Confirmation Box (for Cancel, No-show, or Set back to Booked) */}
         {confirmTarget && (
-          <div className="confirm-action-box" role="alert">
-            <p className="confirm-prompt-text">{getConfirmPromptMessage()}</p>
+          <div className="booking-confirm-panel mb-16" role="alert" aria-live="assertive">
+            <p className="confirm-main-prompt">
+              {confirmTarget === 'cancelled'
+                ? 'Cancel this booking and remove it from Google Calendar?'
+                : confirmTarget === 'no_show'
+                ? 'Mark this appointment as No-show?'
+                : 'Set status back to Booked?'}
+            </p>
             {confirmTarget === 'cancelled' && (
-              <p className="confirm-subprompt-text">
-                This will cancel and remove the booking from Google Calendar.
+              <p className="confirm-sub-prompt">
+                This will automatically remove the appointment from Google Calendar.
               </p>
             )}
-            <div className="confirm-btn-row">
+
+            <div className="confirm-panel-actions mt-10">
               <button
                 type="button"
                 onClick={() => {
@@ -403,90 +560,212 @@ export default function AppointmentDetail({ currentUserId }) {
                   }
                 }}
                 disabled={isSaving}
-                className="btn btn-primary btn-confirm-yes"
+                className={`btn ${
+                  confirmTarget === 'cancelled' ? 'btn-danger' : 'btn-primary'
+                } btn-confirm-action`}
               >
-                {isSaving ? 'Saving...' : 'Yes'}
+                {isSaving ? (
+                  <>
+                    <Loader2 size={16} className="spinner-inline" aria-hidden="true" />
+                    <span>Saving...</span>
+                  </>
+                ) : confirmTarget === 'cancelled' ? (
+                  'Yes, cancel booking'
+                ) : (
+                  'Yes, update status'
+                )}
               </button>
               <button
                 type="button"
                 onClick={() => setConfirmTarget(null)}
                 disabled={isSaving}
-                className="btn btn-secondary btn-confirm-no"
+                className="btn btn-secondary btn-confirm-cancel"
               >
-                No
+                {confirmTarget === 'cancelled' ? 'No, keep it' : 'Cancel'}
               </button>
             </div>
           </div>
         )}
 
-        {/* Primary Status Buttons */}
-        <div className="booking-status-buttons mt-16">
-          <button
-            type="button"
-            onClick={() => handleStatusButtonClick('arrived')}
-            disabled={isSaving || appointment.status === 'arrived'}
-            className={`btn btn-status-opt ${
-              appointment.status === 'arrived' ? 'status-btn-active' : ''
-            }`}
-          >
-            Arrived
-          </button>
+        {/* 1. If Booked or Confirmed: Move to another time + Segmented Arrived/Completed/No-show + Cancel button */}
+        {canMove && (
+          <div className="actions-booked-flow">
+            <button
+              type="button"
+              onClick={() => setShowMoveModal(true)}
+              disabled={isSaving}
+              className="btn btn-secondary btn-move-prominent"
+            >
+              <Calendar size={18} aria-hidden="true" />
+              <span>Move to another time</span>
+            </button>
 
-          <button
-            type="button"
-            onClick={() => handleStatusButtonClick('completed')}
-            disabled={isSaving || appointment.status === 'completed'}
-            className={`btn btn-status-opt ${
-              appointment.status === 'completed' ? 'status-btn-active' : ''
-            }`}
-          >
-            Completed
-          </button>
+            <div className="detail-actions-segmented-row">
+              <div
+                className="segmented-status-group detail-segmented-group"
+                role="group"
+                aria-label="Direct status updates"
+              >
+                <button
+                  type="button"
+                  onClick={() => handleStatusButtonClick('arrived')}
+                  disabled={isSaving || appointment.status === 'arrived'}
+                  className={`btn btn-segment ${
+                    appointment.status === 'arrived' ? 'segment-active' : ''
+                  }`}
+                >
+                  {isSaving && savingTarget === 'arrived' ? (
+                    <Loader2 size={15} className="spinner-inline" />
+                  ) : (
+                    <UserCheck size={15} aria-hidden="true" />
+                  )}
+                  <span>Arrived</span>
+                </button>
 
-          <button
-            type="button"
-            onClick={() => handleStatusButtonClick('no_show')}
-            disabled={isSaving || appointment.status === 'no_show'}
-            className={`btn btn-status-opt ${
-              appointment.status === 'no_show' ? 'status-btn-active' : ''
-            }`}
-          >
-            No-show
-          </button>
+                <button
+                  type="button"
+                  onClick={() => handleStatusButtonClick('completed')}
+                  disabled={isSaving || appointment.status === 'completed'}
+                  className={`btn btn-segment ${
+                    appointment.status === 'completed' ? 'segment-active' : ''
+                  }`}
+                >
+                  {isSaving && savingTarget === 'completed' ? (
+                    <Loader2 size={15} className="spinner-inline" />
+                  ) : (
+                    <CheckCircle2 size={15} aria-hidden="true" />
+                  )}
+                  <span>Completed</span>
+                </button>
 
-          <button
-            type="button"
-            onClick={() => handleStatusButtonClick('cancelled')}
-            disabled={isSaving || appointment.status === 'cancelled'}
-            className={`btn btn-status-opt ${
-              appointment.status === 'cancelled' ? 'status-btn-active' : ''
-            }`}
-          >
-            Cancelled
-          </button>
-        </div>
+                <button
+                  type="button"
+                  onClick={() => handleStatusButtonClick('no_show')}
+                  disabled={isSaving || appointment.status === 'no_show'}
+                  className={`btn btn-segment ${
+                    appointment.status === 'no_show' ? 'segment-active' : ''
+                  }`}
+                >
+                  {isSaving && savingTarget === 'no_show' ? (
+                    <Loader2 size={15} className="spinner-inline" />
+                  ) : (
+                    <UserX size={15} aria-hidden="true" />
+                  )}
+                  <span>No-show</span>
+                </button>
+              </div>
 
-        {/* Undo / Set back to Booked button OR Cancelled restore hint (Rule 4) */}
-        {isCancelled ? (
-          <div className="cancelled-restore-hint-row">
-            <p className="cancelled-restore-hint-text">
-              To restore this slot, make a new booking.
-            </p>
+              <button
+                type="button"
+                onClick={() => handleStatusButtonClick('cancelled')}
+                disabled={isSaving}
+                className="btn btn-outline-danger btn-cancel-detail"
+                aria-label="Cancel this booking"
+              >
+                {isSaving && savingTarget === 'cancelled' ? (
+                  <Loader2 size={15} className="spinner-inline" />
+                ) : (
+                  <XCircle size={15} aria-hidden="true" />
+                )}
+                <span>Cancel booking</span>
+              </button>
+            </div>
           </div>
-        ) : (
-          !isBooked && (
-            <div className="undo-status-row">
+        )}
+
+        {/* 2. If Arrived, Completed, or No-show: Segmented buttons + Set back to Booked */}
+        {!canMove && !isCancelled && (
+          <div className="actions-arrived-completed-flow">
+            <div
+              className="segmented-status-group detail-segmented-group"
+              role="group"
+              aria-label="Direct status updates"
+            >
+              <button
+                type="button"
+                onClick={() => handleStatusButtonClick('arrived')}
+                disabled={isSaving || appointment.status === 'arrived'}
+                className={`btn btn-segment ${
+                  appointment.status === 'arrived' ? 'segment-active' : ''
+                }`}
+              >
+                {isSaving && savingTarget === 'arrived' ? (
+                  <Loader2 size={15} className="spinner-inline" />
+                ) : (
+                  <UserCheck size={15} aria-hidden="true" />
+                )}
+                <span>Arrived</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleStatusButtonClick('completed')}
+                disabled={isSaving || appointment.status === 'completed'}
+                className={`btn btn-segment ${
+                  appointment.status === 'completed' ? 'segment-active' : ''
+                }`}
+              >
+                {isSaving && savingTarget === 'completed' ? (
+                  <Loader2 size={15} className="spinner-inline" />
+                ) : (
+                  <CheckCircle2 size={15} aria-hidden="true" />
+                )}
+                <span>Completed</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleStatusButtonClick('no_show')}
+                disabled={isSaving || appointment.status === 'no_show'}
+                className={`btn btn-segment ${
+                  appointment.status === 'no_show' ? 'segment-active' : ''
+                }`}
+              >
+                {isSaving && savingTarget === 'no_show' ? (
+                  <Loader2 size={15} className="spinner-inline" />
+                ) : (
+                  <UserX size={15} aria-hidden="true" />
+                )}
+                <span>No-show</span>
+              </button>
+            </div>
+
+            <div className="undo-row mt-14">
               <button
                 type="button"
                 onClick={() => handleStatusButtonClick('booked')}
                 disabled={isSaving}
                 className="btn btn-secondary btn-undo-booked"
               >
-                ↺ Set back to Booked
+                <RotateCcw size={16} aria-hidden="true" />
+                <span>↺ Set back to Booked</span>
               </button>
             </div>
-          )
+          </div>
         )}
+
+        {/* 3. If Cancelled: no status buttons, only restore text + New Booking button */}
+        {isCancelled && (
+          <div className="cancelled-restore-container">
+            <p className="cancelled-restore-text">
+              To restore this slot, make a new booking.
+            </p>
+            <button
+              type="button"
+              onClick={() => setShowNewBooking(true)}
+              className="btn btn-primary btn-new-booking-from-cancelled"
+            >
+              <Plus size={18} aria-hidden="true" />
+              <span>+ New booking</span>
+            </button>
+          </div>
+        )}
+
+        {/* Synchronisation note under actions */}
+        <p className="sync-note-muted">
+          Creating, moving and cancelling bookings updates Google Calendar. Arrived,
+          Completed and No-show do not.
+        </p>
       </section>
 
       {/* Move Booking Modal */}
@@ -496,6 +775,16 @@ export default function AppointmentDetail({ currentUserId }) {
           onClose={() => setShowMoveModal(false)}
           onSuccess={handleMoveSuccess}
           appointment={appointment}
+        />
+      )}
+
+      {/* New Booking Modal (for restore in cancelled state) */}
+      {showNewBooking && (
+        <NewBookingModal
+          isOpen={showNewBooking}
+          onClose={() => setShowNewBooking(false)}
+          onSuccess={handleNewBookingSuccess}
+          initialDate={dateKey}
         />
       )}
     </div>
