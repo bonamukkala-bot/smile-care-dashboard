@@ -625,6 +625,257 @@ export async function invokeManageAppointment(body) {
 }
 
 /**
+ * Invoke the manage-closure Supabase Edge Function
+ */
+export async function invokeManageClosure(body) {
+  try {
+    const { data, error } = await supabase.functions.invoke('manage-closure', {
+      body,
+    })
+
+    if (error) {
+      let friendlyMessage = 'Something went wrong. Please try again.'
+      try {
+        if (error.context && typeof error.context.json === 'function') {
+          const bodyJson = await error.context.json()
+          if (bodyJson && bodyJson.error) {
+            friendlyMessage = bodyJson.error
+          }
+        } else if (error.message) {
+          friendlyMessage = error.message
+        }
+      } catch {
+        // Fallback to default message
+      }
+      return { ok: false, error: friendlyMessage }
+    }
+
+    if (!data || data.ok === false) {
+      return {
+        ok: false,
+        error: data?.error || 'Something went wrong. Please try again.',
+        code: data?.code,
+      }
+    }
+
+    return { ok: true, data }
+  } catch (err) {
+    return {
+      ok: false,
+      error: err?.message || 'Something went wrong. Please try again.',
+    }
+  }
+}
+
+/**
+ * Format closure reason to plain English label:
+ * doctor_leave: "Doctor on leave"
+ * event: "Doctor at an event"
+ * emergency: "Emergency"
+ * holiday: "Holiday"
+ * other: "Other"
+ */
+export function formatClosureReason(reason) {
+  switch (reason) {
+    case 'doctor_leave':
+      return 'Doctor on leave'
+    case 'event':
+      return 'Doctor at an event'
+    case 'emergency':
+      return 'Emergency'
+    case 'holiday':
+      return 'Holiday'
+    case 'other':
+      return 'Other'
+    default:
+      return reason ? reason.replace(/_/g, ' ') : 'Closure'
+  }
+}
+
+/**
+ * Convert 24-hour HH:MM time string to 12-hour format like "10:00 AM" or "2:30 PM"
+ */
+export function formatTime24To12(time24) {
+  if (!time24) return ''
+  const [hStr, mStr] = time24.split(':')
+  const h = parseInt(hStr, 10)
+  const m = parseInt(mStr || '0', 10)
+  if (isNaN(h)) return time24
+  const hour12 = h % 12 === 0 ? 12 : h % 12
+  const ampm = h >= 12 ? 'PM' : 'AM'
+  const mPad = m < 10 ? `0${m}` : `${m}`
+  return `${hour12}:${mPad} ${ampm}`
+}
+
+/**
+ * Format closure time window:
+ * "Full day" when it starts 10:00 AM and ends 8:30 PM (or spans across days)
+ * "From 2:30 PM until 8:30 PM" when it starts later than 10:00 AM and ends 8:30 PM
+ * Otherwise "2:00 PM to 4:00 PM"
+ */
+export function formatClosureWindow(startAt, endAt) {
+  if (!startAt || !endAt) return '-'
+  try {
+    const startDateKey = getISTDateKey(startAt)
+    const endDateKey = getISTDateKey(endAt)
+    const isSameDay = startDateKey === endDateKey
+
+    const startParts = new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'Asia/Kolkata',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    }).formatToParts(new Date(startAt))
+
+    const endParts = new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'Asia/Kolkata',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    }).formatToParts(new Date(endAt))
+
+    const startH = parseInt(startParts.find((p) => p.type === 'hour')?.value || '0', 10)
+    const startM = parseInt(startParts.find((p) => p.type === 'minute')?.value || '0', 10)
+    const endH = parseInt(endParts.find((p) => p.type === 'hour')?.value || '0', 10)
+    const endM = parseInt(endParts.find((p) => p.type === 'minute')?.value || '0', 10)
+
+    const startMinutes = startH * 60 + startM
+    const endMinutes = endH * 60 + endM
+
+    const isFullDayStart = startMinutes <= 600 // 10:00 AM or earlier
+    const isFullDayEnd = endMinutes >= 1230 // 20:30 (8:30 PM) or later
+
+    if (!isSameDay) {
+      if (isFullDayStart && isFullDayEnd) return 'Full day'
+      return `${formatISTTimeShort(startAt)} to ${formatISTTimeShort(endAt)}`
+    }
+
+    if (isFullDayStart && isFullDayEnd) {
+      return 'Full day'
+    }
+
+    if (!isFullDayStart && isFullDayEnd) {
+      return `From ${formatISTTimeShort(startAt)} until 8:30 PM`
+    }
+
+    return `${formatISTTimeShort(startAt)} to ${formatISTTimeShort(endAt)}`
+  } catch {
+    return '-'
+  }
+}
+
+/**
+ * Format closure date range in IST:
+ * Same day: "Wed 4 Nov 2026"
+ * Several days: "Mon 9 Nov to Fri 13 Nov 2026"
+ */
+export function formatClosureDateRange(startAt, endAt) {
+  if (!startAt) return '-'
+  try {
+    const startD = new Date(startAt)
+    const endD = endAt ? new Date(endAt) : startD
+    const startDateKey = getISTDateKey(startD)
+    const endDateKey = getISTDateKey(endD)
+
+    const fmt = (d, includeYear = true) => {
+      const opts = {
+        timeZone: 'Asia/Kolkata',
+        weekday: 'short',
+        day: 'numeric',
+        month: 'short',
+      }
+      if (includeYear) opts.year = 'numeric'
+      return new Intl.DateTimeFormat('en-GB', opts).format(d).replace(/,/g, '')
+    }
+
+    if (startDateKey === endDateKey) {
+      return fmt(startD, true)
+    }
+
+    const startYear = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Kolkata', year: 'numeric' }).format(startD)
+    const endYear = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Kolkata', year: 'numeric' }).format(endD)
+
+    if (startYear === endYear) {
+      return `${fmt(startD, false)} to ${fmt(endD, true)}`
+    }
+    return `${fmt(startD, true)} to ${fmt(endD, true)}`
+  } catch {
+    return '-'
+  }
+}
+
+/**
+ * Get next half hour in IST from right now as 'HH:MM' (24-hour).
+ * If before 10:00, returns '10:00'. If past 20:30, returns '20:30'.
+ */
+export function getNextHalfHourIST() {
+  try {
+    const now = new Date()
+    const parts = new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'Asia/Kolkata',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    }).formatToParts(now)
+    let hour = parseInt(parts.find((p) => p.type === 'hour')?.value || '0', 10)
+    const minute = parseInt(parts.find((p) => p.type === 'minute')?.value || '0', 10)
+
+    let nextMinute = 0
+    if (minute > 0 && minute <= 30) {
+      nextMinute = 30
+    } else if (minute > 30) {
+      hour += 1
+      nextMinute = 0
+    }
+    if (hour < 10) {
+      hour = 10
+      nextMinute = 0
+    }
+    const pad = (n) => String(n).padStart(2, '0')
+    return `${pad(hour)}:${pad(nextMinute)}`
+  } catch {
+    return '10:00'
+  }
+}
+
+/**
+ * Check if "Close the rest of today" quick chip should be visible.
+ * Hidden if today is Sunday or current IST time is already 8:00 PM (20:00) or later.
+ */
+export function canCloseRestOfToday() {
+  try {
+    const today = getTodayIST()
+    if (isSundayIST(today)) return false
+
+    const now = new Date()
+    const parts = new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'Asia/Kolkata',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    }).formatToParts(now)
+    const hour = parseInt(parts.find((p) => p.type === 'hour')?.value || '0', 10)
+    if (hour >= 20) return false
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Add days to an IST date string (YYYY-MM-DD) and return YYYY-MM-DD
+ */
+export function addDaysToISTDate(dateStr, days) {
+  try {
+    const d = new Date(`${dateStr}T12:00:00+05:30`)
+    d.setDate(d.getDate() + days)
+    return getISTDateKey(d)
+  } catch {
+    return dateStr
+  }
+}
+
+/**
  * Live clinic operating status in Asia/Kolkata timezone:
  * Mon-Sat: 10:00 AM-1:30 PM & 5:00-8:30 PM. Break: 1:30-5:00 PM. Sunday: closed.
  */
@@ -721,8 +972,6 @@ export function formatSlotEndTime(slotStart) {
     return ''
   }
 }
-
-
 
 /**
  * Format plain IST date-time strings (like "2026-11-03 11:00:00" or "2026-11-03T11:00")

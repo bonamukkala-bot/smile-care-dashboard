@@ -7920,6 +7920,1193 @@ input:focus, select:focus, textarea:focus {
   }
 }
 
+/* ==========================================================================
+   CLINIC CLOSURES FEATURE
+   ========================================================================== */
+
+/* Page Header & Actions */
+.btn-add-closure-header {
+  min-height: 44px;
+  padding: 0 18px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+  font-size: 15px;
+}
+
+.btn-closures-header {
+  min-height: 44px;
+  padding: 0 14px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.closures-main-content {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+}
+
+/* --------------------------------------------------------------------------
+   CLOSURE CARDS (Active and Upcoming)
+   -------------------------------------------------------------------------- */
+.closures-section-heading-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+
+.closures-section-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text);
+  margin: 0;
+}
+
+.closures-section-count {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.closures-cards-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* Closure Card: radius 20px, surface, 1px border, left accent stripe */
+.closure-card {
+  border-radius: 20px;
+  background-color: var(--surface);
+  border: 1px solid var(--border);
+  padding: 22px 24px;
+  box-shadow: var(--shadow-sm);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  overflow: hidden;
+}
+
+.closure-card-standard {
+  border-left: 5px solid var(--warning);
+}
+
+.closure-card-emergency {
+  border-left: 5px solid var(--danger);
+}
+
+.closure-card-top-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.closure-badges-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.closure-reason-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: var(--radius-sm);
+}
+
+.reason-badge-standard {
+  background-color: var(--warning-bg);
+  border: 1px solid var(--warning);
+  color: var(--warning);
+}
+
+.reason-badge-emergency {
+  background-color: var(--danger-bg);
+  border: 1px solid var(--danger);
+  color: var(--danger);
+}
+
+.closure-active-now-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  padding: 3px 8px;
+  border-radius: 12px;
+  background-color: rgba(34, 197, 94, 0.16);
+  color: var(--success);
+  border: 1px solid rgba(34, 197, 94, 0.35);
+  text-transform: uppercase;
+}
+
+.active-dot-pulsing {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background-color: var(--success);
+  box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.4);
+  animation: pulseDot 1.8s infinite;
+}
+
+@keyframes pulseDot {
+  0% {
+    transform: scale(0.95);
+    box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.7);
+  }
+  70% {
+    transform: scale(1);
+    box-shadow: 0 0 0 6px rgba(34, 197, 94, 0);
+  }
+  100% {
+    transform: scale(0.95);
+    box-shadow: 0 0 0 0 rgba(34, 197, 94, 0);
+  }
+}
+
+.closure-added-time {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.closure-card-time-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+
+.closure-card-date {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text);
+  margin: 0;
+  letter-spacing: -0.01em;
+}
+
+.closure-card-window-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-muted);
+  background-color: var(--surface-2);
+  border: 1px solid var(--border-light);
+  padding: 3px 10px;
+  border-radius: var(--radius-sm);
+}
+
+.closure-card-note {
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--text-muted);
+  margin: 4px 0 14px 0;
+}
+
+/* Bookings Bar */
+.closure-card-bookings-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding-top: 14px;
+  border-top: 1px solid var(--border-light);
+  margin-top: 8px;
+}
+
+.btn-closure-handle-bookings {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 700;
+  padding: 6px 14px;
+  border-radius: var(--radius);
+  background-color: var(--warning-bg);
+  border: 1px solid var(--warning);
+  color: var(--warning);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-closure-handle-bookings:hover {
+  filter: brightness(1.08);
+}
+
+.btn-closure-handle-bookings:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.closure-no-bookings-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--success);
+  background-color: rgba(34, 197, 94, 0.1);
+  border: 1px solid rgba(34, 197, 94, 0.3);
+  padding: 5px 12px;
+  border-radius: var(--radius);
+}
+
+.closure-bookings-loading-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.btn-remove-closure {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+  font-size: 13px;
+  min-height: 36px;
+  padding: 0 12px;
+}
+
+/* Inline Remove Confirmation Box */
+.closure-confirm-remove-box {
+  margin-top: 14px;
+  padding: 14px 16px;
+  background-color: var(--surface-2);
+  border: 1px solid var(--danger);
+  border-radius: var(--radius);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.confirm-remove-prompt {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  margin: 0;
+  line-height: 1.45;
+}
+
+.closure-inline-error {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--danger);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.confirm-remove-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* --------------------------------------------------------------------------
+   EXPANDABLE AFFECTED BOOKINGS LIST (Inside Closure Card)
+   -------------------------------------------------------------------------- */
+.closure-card-expanded-area {
+  margin-top: 16px;
+  animation: fadeIn 0.2s ease;
+}
+
+.expanded-divider {
+  width: 100%;
+  height: 1px;
+  background-color: var(--border-light);
+  margin-bottom: 16px;
+}
+
+.expanded-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text);
+  margin: 0 0 12px 0;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.affected-bookings-table {
+  background-color: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.affected-bookings-header {
+  display: grid;
+  grid-template-columns: 1.6fr 1.6fr 1fr 1.2fr;
+  padding: 10px 16px;
+  background-color: rgba(255, 255, 255, 0.02);
+  border-bottom: 1px solid var(--border-light);
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.affected-booking-row {
+  display: grid;
+  grid-template-columns: 1.6fr 1.6fr 1fr 1.2fr;
+  align-items: center;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border-light);
+  gap: 8px;
+}
+
+.affected-booking-row:last-child {
+  border-bottom: none;
+}
+
+.affected-cell-patient {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.affected-patient-name {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text);
+  word-break: break-word;
+}
+
+.affected-phone-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.affected-phone-text {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.affected-call-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent);
+  padding: 2px 6px;
+  border-radius: 4px;
+  background-color: rgba(109, 74, 255, 0.1);
+  text-decoration: none;
+  transition: background-color 0.15s ease;
+}
+
+.affected-call-btn:hover {
+  background-color: rgba(109, 74, 255, 0.2);
+}
+
+.affected-cell-time {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.affected-date-text {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.affected-time-range {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.affected-open-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  min-height: 32px;
+  padding: 0 10px;
+}
+
+.affected-bookings-empty {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 16px;
+  color: var(--success);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.affected-all-handled-icon {
+  color: var(--success);
+}
+
+/* --------------------------------------------------------------------------
+   PAST CLOSURES SECTION (Collapsible)
+   -------------------------------------------------------------------------- */
+.past-closures-section {
+  border: 1px dashed var(--border);
+  border-radius: 20px;
+  background-color: var(--surface);
+  overflow: hidden;
+}
+
+.past-closures-toggle-btn {
+  width: 100%;
+  padding: 18px 22px;
+  background: transparent;
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 15px;
+  font-weight: 700;
+  transition: background-color 0.15s ease;
+}
+
+.past-closures-toggle-btn:hover {
+  background-color: var(--surface-2);
+}
+
+.past-closures-toggle-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.past-toggle-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text-muted);
+}
+
+.past-closures-panel {
+  padding: 0 22px 20px 22px;
+  animation: fadeIn 0.2s ease;
+}
+
+.past-closures-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.past-closure-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 12px 14px;
+  background-color: var(--surface-2);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius);
+}
+
+.past-row-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  font-size: 14px;
+}
+
+.past-row-date {
+  color: var(--text);
+}
+
+.past-row-window {
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.past-row-reason {
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.past-row-note {
+  font-style: italic;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.past-status-tag {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 4px;
+  text-transform: uppercase;
+}
+
+.past-tag-ended {
+  background-color: rgba(148, 163, 184, 0.15);
+  color: var(--text-muted);
+  border: 1px solid var(--border-light);
+}
+
+.past-tag-removed {
+  background-color: var(--danger-bg);
+  color: var(--danger);
+  border: 1px solid var(--danger);
+}
+
+.past-closures-empty {
+  font-size: 14px;
+  color: var(--text-muted);
+  margin: 0;
+  padding: 8px 0;
+}
+
+.past-closures-loading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  color: var(--text-muted);
+  padding: 10px 0;
+}
+
+/* --------------------------------------------------------------------------
+   EMPTY & SKELETON STATES
+   -------------------------------------------------------------------------- */
+.closures-empty-panel {
+  border: 2px dashed var(--border);
+  border-radius: 24px;
+  padding: 56px 24px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.closures-empty-icon-tile {
+  width: 64px;
+  height: 64px;
+  border-radius: 16px;
+  background-color: var(--surface-2);
+  border: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+}
+
+.closures-error-state {
+  text-align: center;
+  padding: 40px 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.closures-skeleton-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.skeleton-closure-card {
+  min-height: 140px;
+  border-radius: 20px;
+}
+
+/* --------------------------------------------------------------------------
+   ADD CLOSURE DIALOG & BOTTOM SHEET
+   -------------------------------------------------------------------------- */
+.add-closure-dialog-panel {
+  max-width: 580px;
+}
+
+.quick-chip-banner {
+  padding: 12px 14px;
+  background-color: rgba(34, 211, 238, 0.08);
+  border: 1px solid rgba(34, 211, 238, 0.25);
+  border-radius: var(--radius);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 16px;
+}
+
+.btn-quick-chip {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--accent-2);
+  background-color: rgba(34, 211, 238, 0.15);
+  border: 1px solid var(--accent-2);
+  border-radius: 8px;
+  padding: 6px 12px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-quick-chip:hover {
+  filter: brightness(1.1);
+  transform: translateY(-1px);
+}
+
+.btn-quick-chip:focus-visible {
+  outline: 2px solid var(--accent-2);
+  outline-offset: 2px;
+}
+
+.quick-chip-hint {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin: 0;
+}
+
+.closure-reason-chips {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 8px;
+}
+
+.reason-chip-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  background-color: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.reason-chip-btn:hover {
+  color: var(--text);
+  border-color: var(--border-light);
+}
+
+.reason-chip-active {
+  background-color: rgba(109, 74, 255, 0.14);
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.reason-chip-btn:focus-within {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Segmented Control for Duration */
+.segmented-control {
+  display: flex;
+  background-color: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 4px;
+  gap: 4px;
+}
+
+.segmented-btn {
+  flex: 1;
+  padding: 8px 12px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-muted);
+  background: transparent;
+  border: none;
+  border-radius: calc(var(--radius) - 2px);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.segmented-btn.active {
+  background-color: var(--surface);
+  color: var(--text);
+  font-weight: 700;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+}
+
+.segmented-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.full-days-date-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.form-field-helper {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin: -4px 0 0 0;
+}
+
+.specific-hours-block {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.specific-hours-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.note-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.note-char-counter {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.char-counter-warn {
+  color: var(--warning);
+  font-weight: 700;
+}
+
+.btn-dialog-back {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 6px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.btn-dialog-back:hover {
+  color: var(--text);
+}
+
+/* Review Step Elements */
+.review-scroll-area {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.closure-review-summary-card {
+  padding: 16px;
+  background-color: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.review-badge-label {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  color: var(--accent-2);
+  text-transform: uppercase;
+}
+
+.review-summary-main {
+  font-size: 16px;
+  color: var(--text);
+  margin: 0;
+  line-height: 1.45;
+}
+
+.review-summary-sub {
+  font-size: 14px;
+  color: var(--text-muted);
+  margin: 0;
+  line-height: 1.45;
+}
+
+.review-lookup-loading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px;
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+.review-bookings-impact-box {
+  padding: 16px;
+  border-radius: var(--radius);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.review-bookings-impact-box.box-amber {
+  background-color: var(--warning-bg);
+  border: 1px solid var(--warning);
+  color: var(--text);
+}
+
+.review-bookings-impact-box.box-green {
+  background-color: rgba(34, 197, 94, 0.12);
+  border: 1px solid var(--success);
+  color: var(--success);
+  font-weight: 600;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+}
+
+.impact-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 15px;
+}
+
+.impact-icon-amber {
+  color: var(--warning);
+  flex-shrink: 0;
+}
+
+.impact-icon-green {
+  color: var(--success);
+  flex-shrink: 0;
+}
+
+.impact-desc {
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--text-muted);
+  margin: 0;
+}
+
+.preview-bookings-list {
+  margin: 4px 0 0 0;
+  padding: 0 0 0 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.preview-booking-item {
+  font-size: 13px;
+  color: var(--text);
+}
+
+.preview-booking-item .preview-time {
+  color: var(--text-muted);
+  margin-left: 6px;
+}
+
+.preview-more-count {
+  font-size: 12px;
+  font-style: italic;
+  color: var(--text-muted);
+}
+
+/* --------------------------------------------------------------------------
+   SHARED CLOSURE NOTICES
+   -------------------------------------------------------------------------- */
+/* Home Dashboard Notice Card */
+.closure-home-notice-card {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 16px 20px;
+  border-radius: 16px;
+  background-color: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--warning);
+  box-shadow: var(--shadow-sm);
+  margin-bottom: 20px;
+}
+
+.closure-notice-icon-tile {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background-color: var(--warning-bg);
+  color: var(--warning);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.closure-notice-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.closure-notice-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.closure-notice-badge {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  color: var(--warning);
+  background-color: var(--warning-bg);
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.closure-notice-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.closure-notice-note {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin: 0;
+}
+
+.closure-notice-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.closure-unhandled-badge-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--warning);
+  background-color: var(--warning-bg);
+  border: 1px solid var(--warning);
+  padding: 6px 12px;
+  border-radius: var(--radius);
+  text-decoration: none;
+  transition: all 0.15s ease;
+}
+
+.closure-unhandled-badge-link:hover {
+  filter: brightness(1.1);
+}
+
+/* Compact Banner (Today's Bookings and Appointments Day view) */
+.closure-compact-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 18px;
+  background-color: var(--surface);
+  border: 1px solid var(--warning);
+  border-left: 4px solid var(--warning);
+  border-radius: var(--radius);
+  margin-bottom: 20px;
+  box-shadow: var(--shadow-sm);
+}
+
+.closure-compact-day-view {
+  margin-bottom: 20px;
+}
+
+.closure-compact-content {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.closure-compact-icon {
+  color: var(--warning);
+  flex-shrink: 0;
+}
+
+.closure-compact-text {
+  font-size: 14px;
+  color: var(--text);
+}
+
+.closure-compact-unhandled-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--warning);
+  background-color: var(--warning-bg);
+  border: 1px solid var(--warning);
+  padding: 2px 8px;
+  border-radius: 12px;
+  text-decoration: none;
+}
+
+.closure-compact-manage-link {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--accent);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.closure-compact-manage-link:hover {
+  text-decoration: underline;
+}
+
+/* --------------------------------------------------------------------------
+   SLOT PICKER: CLOSED SLOTS
+   -------------------------------------------------------------------------- */
+.slot-chip-closed {
+  opacity: 0.6;
+  border-color: rgba(245, 158, 11, 0.4) !important;
+  background-color: rgba(245, 158, 11, 0.05) !important;
+}
+
+.slot-status-closed {
+  color: var(--warning) !important;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.slot-tag-icon {
+  color: var(--warning);
+}
+
+.slot-all-closed-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  background-color: var(--warning-bg);
+  border: 1px solid var(--warning);
+  border-radius: var(--radius);
+  color: var(--warning);
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 14px;
+}
+
+.slot-closed-banner-icon {
+  flex-shrink: 0;
+}
+
+/* --------------------------------------------------------------------------
+   RESPONSIVE DESIGN FOR CLOSURES (< 640px)
+   -------------------------------------------------------------------------- */
+@media (max-width: 639px) {
+  .btn-add-closure-header {
+    min-height: 48px;
+    padding: 0 16px;
+    font-size: 15px;
+  }
+
+  .btn-closures-header {
+    min-height: 48px;
+    padding: 0 12px;
+  }
+
+  .btn-text-responsive {
+    display: none;
+  }
+
+  .affected-bookings-header {
+    display: none;
+  }
+
+  .affected-booking-row {
+    grid-template-columns: 1fr;
+    gap: 10px;
+    padding: 14px 12px;
+  }
+
+  .closure-card {
+    padding: 18px 16px;
+    border-radius: 16px;
+  }
+
+  .closure-card-bookings-bar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .btn-closure-handle-bookings,
+  .btn-remove-closure {
+    width: 100%;
+    justify-content: center;
+    min-height: 44px;
+  }
+
+  .closure-home-notice-card {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .closure-notice-actions {
+    width: 100%;
+  }
+
+  .closure-unhandled-badge-link {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .specific-hours-row {
+    grid-template-columns: 1fr;
+  }
+
+  .past-closure-row {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .active-dot-pulsing {
+    animation: none;
+  }
+
+  .closure-card,
+  .btn-quick-chip,
+  .closure-card-expanded-area,
+  .past-closures-panel {
+    transition: none !important;
+    animation: none !important;
+  }
+}
+
 
 
 

@@ -5,6 +5,7 @@ import {
   AlertCircle,
   CalendarCheck,
   Calendar,
+  CalendarOff,
   PhoneCall,
   Clock,
 } from 'lucide-react'
@@ -54,9 +55,8 @@ export default function Sidebar({ openAttentionCount = 0, hasEmergency = false, 
           <span className="link-text">Needs Attention</span>
           {openAttentionCount > 0 && (
             <span
-              className={`nav-badge ${
-                hasEmergency ? 'nav-badge-emergency' : 'nav-badge-attention'
-              }`}
+              className={`nav-badge ${hasEmergency ? 'nav-badge-emergency' : 'nav-badge-attention'
+                }`}
             >
               {openAttentionCount}
             </span>
@@ -82,6 +82,15 @@ export default function Sidebar({ openAttentionCount = 0, hasEmergency = false, 
         >
           <Calendar size={20} className="sidebar-icon" />
           <span className="link-text">Appointments</span>
+        </NavLink>
+
+        <NavLink
+          to="/closures"
+          className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}
+          aria-current={({ isActive }) => (isActive ? 'page' : undefined)}
+        >
+          <CalendarOff size={20} className="sidebar-icon" />
+          <span className="link-text">Closures</span>
         </NavLink>
 
         <NavLink
@@ -115,4 +124,3 @@ export default function Sidebar({ openAttentionCount = 0, hasEmergency = false, 
     </aside>
   )
 }
-

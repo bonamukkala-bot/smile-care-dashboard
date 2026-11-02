@@ -29,6 +29,7 @@ import {
   getISTLongDate,
 } from '../lib/helpers'
 import NewBookingModal from './NewBookingModal'
+import ClosureNotice from './ClosureNotice'
 
 export default function Home({ profile }) {
   const [loading, setLoading] = useState(true)
@@ -315,6 +316,11 @@ export default function Home({ profile }) {
         </div>
       ) : (
         <>
+          {/* Subtle Closure Notice: If Needs Attention is empty, placed ABOVE Needs Attention banner */}
+          {openAttentionCount === 0 && (
+            <ClosureNotice dateStr={todayIST} isHome={true} />
+          )}
+
           {/* b) Needs Attention Banner */}
           {openAttentionCount > 0 ? (
             <section
@@ -375,6 +381,11 @@ export default function Home({ profile }) {
                 </Link>
               </div>
             </section>
+          )}
+
+          {/* Subtle Closure Notice: If Needs Attention has items, placed right UNDER Needs Attention banner */}
+          {openAttentionCount > 0 && (
+            <ClosureNotice dateStr={todayIST} isHome={true} />
           )}
 
           {/* c) Three Stat Cards (Clickable) */}

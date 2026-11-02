@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import { Sun, Moon, LogOut, Info } from 'lucide-react'
+import { Sun, Moon, LogOut, Info, CalendarOff } from 'lucide-react'
 import { useTheme } from '../lib/theme'
 import { formatISTDateLabel, getTodayIST } from '../lib/helpers'
 
@@ -182,6 +182,7 @@ export default function TopBar({
 
             <div className="user-dropdown-divider" />
 
+            {/* Theme Toggle */}
             <button
               type="button"
               onClick={() => {
@@ -203,6 +204,20 @@ export default function TopBar({
               )}
             </button>
 
+            {/* Clinic Closures Link */}
+            <Link
+              to="/closures"
+              onClick={() => setUserMenuOpen(false)}
+              className="user-dropdown-item"
+              role="menuitem"
+            >
+              <CalendarOff size={17} className="dropdown-icon" />
+              <span>Clinic closures</span>
+            </Link>
+
+            <div className="user-dropdown-divider" />
+
+            {/* Log Out */}
             <button
               type="button"
               onClick={() => {

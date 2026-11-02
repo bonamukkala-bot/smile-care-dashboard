@@ -10,6 +10,7 @@ import NeedsAttention from './components/NeedsAttention'
 import TodayBookings from './components/TodayBookings'
 import Appointments from './components/Appointments'
 import AppointmentDetail from './components/AppointmentDetail'
+import Closures from './components/Closures'
 import './App.css'
 
 export default function App() {
@@ -170,6 +171,7 @@ export default function App() {
           path="/appointments/:id"
           element={<AppointmentDetail currentUserId={session?.user?.id} />}
         />
+        <Route path="/closures" element={<Closures />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </AppShell>

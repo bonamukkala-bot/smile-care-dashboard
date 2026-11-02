@@ -31,6 +31,7 @@ import AppointmentRow from './AppointmentRow'
 import BookingCard from './BookingCard'
 import NewBookingModal from './NewBookingModal'
 import Toast from './Toast'
+import ClosureNotice from './ClosureNotice'
 
 const HIDE_SYNC_BANNER_KEY = 'smile_care_hide_booking_sync_banner'
 const VIEW_MODE_STORAGE_KEY = 'smile_care_appointments_view_mode'
@@ -118,19 +119,19 @@ export default function Appointments() {
     }
   }
 
-  // Fetch doctors once on mount
+  // 1. Fetch doctors table once on mount
   useEffect(() => {
     let isMounted = true
 
     async function loadDoctors() {
       try {
-        const { data, error: docErr } = await supabase
+        const { data, error: docError } = await supabase
           .from('doctors')
           .select('id, name')
 
         if (!isMounted) return
-        if (docErr) {
-          console.error('Failed to load doctors:', docErr.message)
+        if (docError) {
+          console.error('Failed to load doctors:', docError.message)
           return
         }
 
@@ -141,7 +142,7 @@ export default function Appointments() {
         setDoctors(map)
       } catch (err) {
         if (!isMounted) return
-        console.error('Error fetching doctors:', err?.message || err)
+        console.error('Unexpected error loading doctors:', err)
       }
     }
 
@@ -152,69 +153,84 @@ export default function Appointments() {
     }
   }, [])
 
-  // Fetch appointments with 60-second silent refresh
+  // 2. Fetch appointments based on active viewMode and date range
   useEffect(() => {
     let isMounted = true
 
-    async function loadAppointments(isSilent = false) {
-      if (!isSilent) {
-        setLoading(true)
-      }
-      setError(null)
+    async function loadAppointments() {
+      // If busy confirming or updating, do not wipe/replace list
+      if (isBusyRef.current) return
 
       try {
+        setLoading(true)
+        setError(null)
+
         let query = supabase
           .from('appointments')
           .select(
-            'id, call_id, doctor_id, patient_name, patient_phone, reason, slot_start, status, source, created_at'
+            'id, doctor_id, patient_name, patient_phone, slot_start, reason, status, source, notes, google_event_id'
           )
 
         if (viewMode === 'day') {
+          // Exactly 1 day in IST
           const { startUTC, endUTC } = getISTDateRange(selectedDate)
           query = query
             .gte('slot_start', startUTC)
             .lte('slot_start', endUTC)
             .order('slot_start', { ascending: true })
         } else if (viewMode === 'week') {
+          // 7 days of the selected week (Mon 00:00 to Sun 23:59:59.999 IST)
           const weekDays = getISTWeekDays(selectedDate)
-          if (weekDays.length === 7) {
-            const startUTC = getISTDateRange(weekDays[0]).startUTC
-            const endUTC = getISTDateRange(weekDays[6]).endUTC
+          const mondayDate = weekDays[0] || selectedDate
+          const sundayDate = weekDays[6] || selectedDate
+          const { startUTC } = getISTDateRange(mondayDate)
+          const { endUTC } = getISTDateRange(sundayDate)
+
+          query = query
+            .gte('slot_start', startUTC)
+            .lte('slot_start', endUTC)
+            .order('slot_start', { ascending: true })
+        } else if (viewMode === 'list') {
+          // List view: Upcoming (today onward) or Past 30 days
+          const today = getTodayIST()
+          if (!showPastList) {
+            const { startUTC } = getISTDateRange(today)
+            query = query
+              .gte('slot_start', startUTC)
+              .order('slot_start', { ascending: true })
+              .limit(100)
+          } else {
+            // Past 30 days up to today
+            const past30D = new Date(`${today}T00:00:00+05:30`)
+            past30D.setDate(past30D.getDate() - 30)
+            const past30Str = getISTDateKey(past30D)
+            const { startUTC } = getISTDateRange(past30Str)
+            const { endUTC } = getISTDateRange(today)
+
             query = query
               .gte('slot_start', startUTC)
               .lte('slot_start', endUTC)
-              .order('slot_start', { ascending: true })
-          }
-        } else if (viewMode === 'list') {
-          if (showPastList) {
-            const pastDate = new Date()
-            pastDate.setDate(pastDate.getDate() - 30)
-            const pastStartUTC = getISTDateRange(getISTDateKey(pastDate)).startUTC
-            const todayEndUTC = getISTDateRange(getTodayIST()).endUTC
-            query = query
-              .gte('slot_start', pastStartUTC)
-              .lte('slot_start', todayEndUTC)
               .order('slot_start', { ascending: false })
-              .limit(200)
-          } else {
-            const todayStartUTC = getISTDateRange(getTodayIST()).startUTC
-            query = query
-              .gte('slot_start', todayStartUTC)
-              .order('slot_start', { ascending: true })
-              .limit(200)
+              .limit(100)
           }
         }
 
-        const { data, error: apptErr } = await query
+        const { data, error: queryError } = await query
 
         if (!isMounted) return
-        if (apptErr) throw apptErr
 
-        setAppointments(data || [])
+        if (queryError) {
+          console.error('Error querying appointments:', queryError.message)
+          setError('Failed to load appointments. Please check connection.')
+          setAppointments([])
+        } else {
+          setAppointments(data || [])
+        }
       } catch (err) {
         if (!isMounted) return
-        console.error('Failed to load appointments:', err?.message || err)
-        setError('Unable to load appointments. Please check your connection and try again.')
+        console.error('Unexpected error loading appointments:', err)
+        setError('An unexpected error occurred while loading appointments.')
+        setAppointments([])
       } finally {
         if (isMounted) {
           setLoading(false)
@@ -222,59 +238,129 @@ export default function Appointments() {
       }
     }
 
-    loadAppointments(false)
+    loadAppointments()
 
+    // 60-second polling refresh with cleanup
     const interval = setInterval(() => {
-      if (isMounted && !isBusyRef.current) {
-        loadAppointments(true)
+      if (isMounted) {
+        loadAppointments()
       }
     }, 60000)
+
+    // Window focus refresh
+    const handleFocus = () => {
+      if (isMounted) {
+        loadAppointments()
+      }
+    }
+    window.addEventListener('focus', handleFocus)
 
     return () => {
       isMounted = false
       clearInterval(interval)
+      window.removeEventListener('focus', handleFocus)
     }
   }, [viewMode, selectedDate, showPastList, reloadKey])
 
-  // Navigation handlers
+  // Date step navigators
   const handlePrevDay = () => {
-    const d = new Date(`${selectedDate}T12:00:00+05:30`)
-    d.setDate(d.getDate() - 1)
-    setSelectedDate(getISTDateKey(d))
-    setConfirmState(null)
+    try {
+      const d = new Date(`${selectedDate}T12:00:00+05:30`)
+      d.setDate(d.getDate() - 1)
+      setSelectedDate(getISTDateKey(d))
+    } catch {
+      // Ignore
+    }
   }
 
   const handleNextDay = () => {
-    const d = new Date(`${selectedDate}T12:00:00+05:30`)
-    d.setDate(d.getDate() + 1)
-    setSelectedDate(getISTDateKey(d))
-    setConfirmState(null)
+    try {
+      const d = new Date(`${selectedDate}T12:00:00+05:30`)
+      d.setDate(d.getDate() + 1)
+      setSelectedDate(getISTDateKey(d))
+    } catch {
+      // Ignore
+    }
   }
 
   const handleToday = () => {
     setSelectedDate(getTodayIST())
-    setConfirmState(null)
   }
 
-  const weekDays = useMemo(() => getISTWeekDays(selectedDate), [selectedDate])
-
   const handlePrevWeek = () => {
-    const d = new Date(`${selectedDate}T12:00:00+05:30`)
-    d.setDate(d.getDate() - 7)
-    setSelectedDate(getISTDateKey(d))
+    try {
+      const d = new Date(`${selectedDate}T12:00:00+05:30`)
+      d.setDate(d.getDate() - 7)
+      setSelectedDate(getISTDateKey(d))
+    } catch {
+      // Ignore
+    }
   }
 
   const handleNextWeek = () => {
-    const d = new Date(`${selectedDate}T12:00:00+05:30`)
-    d.setDate(d.getDate() + 7)
-    setSelectedDate(getISTDateKey(d))
+    try {
+      const d = new Date(`${selectedDate}T12:00:00+05:30`)
+      d.setDate(d.getDate() + 7)
+      setSelectedDate(getISTDateKey(d))
+    } catch {
+      // Ignore
+    }
   }
 
   const handleThisWeek = () => {
     setSelectedDate(getTodayIST())
   }
 
-  // Clear filters
+  // 3. Client-side Universal Filtering
+  const filteredAppointments = useMemo(() => {
+    return appointments.filter((appt) => {
+      // Exclude cancelled unless toggle is active or explicit filter is 'cancelled'
+      if (!showCancelled && filterStatus !== 'cancelled' && appt.status === 'cancelled') {
+        return false
+      }
+
+      // Status filter
+      if (filterStatus !== 'all' && appt.status !== filterStatus) {
+        return false
+      }
+
+      // Source filter
+      if (filterSource !== 'all') {
+        const apptSource = (appt.source || 'staff').toLowerCase()
+        if (filterSource === 'voice' && apptSource !== 'voice') return false
+        if (filterSource === 'staff' && apptSource !== 'staff') return false
+      }
+
+      // Doctor filter
+      if (filterDoctor !== 'all') {
+        if (String(appt.doctor_id) !== String(filterDoctor)) return false
+      }
+
+      // Search query (patient name or phone)
+      if (searchQuery.trim()) {
+        const query = searchQuery.trim().toLowerCase()
+        const nameMatch = (appt.patient_name || '').toLowerCase().includes(query)
+        const phoneMatch = (appt.patient_phone || '').includes(query)
+        if (!nameMatch && !phoneMatch) return false
+      }
+
+      return true
+    })
+  }, [appointments, showCancelled, filterStatus, filterSource, filterDoctor, searchQuery])
+
+  // Count active filters
+  const activeFilterCount = useMemo(() => {
+    let count = 0
+    if (filterStatus !== 'all') count++
+    if (filterSource !== 'all') count++
+    if (filterDoctor !== 'all') count++
+    if (searchQuery.trim()) count++
+    if (showCancelled) count++
+    return count
+  }, [filterStatus, filterSource, filterDoctor, searchQuery, showCancelled])
+
+  const hasActiveFilters = activeFilterCount > 0
+
   const handleClearFilters = () => {
     setFilterStatus('all')
     setFilterSource('all')
@@ -283,142 +369,81 @@ export default function Appointments() {
     setShowCancelled(false)
   }
 
-  const activeFilterCount = useMemo(() => {
-    let count = 0
-    if (filterStatus !== 'all') count += 1
-    if (filterSource !== 'all') count += 1
-    if (filterDoctor !== 'all') count += 1
-    if (searchQuery.trim()) count += 1
-    if (showCancelled) count += 1
-    return count
-  }, [filterStatus, filterSource, filterDoctor, searchQuery, showCancelled])
-
-  const hasActiveFilters = activeFilterCount > 0
-
-  // Filter application
-  const filteredAppointments = useMemo(() => {
-    const trimmed = searchQuery.trim()
-    const searchLower = trimmed.toLowerCase()
-    const searchDigits = trimmed.replace(/\D/g, '')
-
-    return appointments.filter((appt) => {
-      // Cancelled visibility
-      if (!showCancelled && filterStatus !== 'cancelled' && appt.status === 'cancelled') {
-        return false
-      }
-      // Status
-      if (filterStatus !== 'all' && appt.status !== filterStatus) {
-        return false
-      }
-      // Source
-      if (filterSource !== 'all' && appt.source !== filterSource) {
-        return false
-      }
-      // Doctor
-      if (filterDoctor !== 'all' && String(appt.doctor_id) !== String(filterDoctor)) {
-        return false
-      }
-      // Search
-      if (trimmed) {
-        const patientName = (appt.patient_name || '').toLowerCase()
-        const matchesName = patientName.includes(searchLower)
-        const rawPhone = (appt.patient_phone || '').replace(/\D/g, '')
-        const matchesPhone = searchDigits.length > 0 && rawPhone.includes(searchDigits)
-        if (!matchesName && !matchesPhone) {
-          return false
-        }
-      }
-      return true
-    })
-  }, [appointments, filterStatus, filterSource, filterDoctor, searchQuery, showCancelled])
-
-  // Groupings for views
-  // 1. Day view: grouped by doctor
+  // Grouping for Day View (by doctor)
   const dayGroupedByDoctor = useMemo(() => {
-    const distinctDoctors = new Set(
-      filteredAppointments.map((a) => a.doctor_id || 'unknown')
-    )
-    if (distinctDoctors.size <= 1) {
-      return null
-    }
+    if (viewMode !== 'day') return null
+    const docIds = new Set(filteredAppointments.map((a) => a.doctor_id))
+    if (docIds.size <= 1) return null
 
     const groups = {}
     for (const appt of filteredAppointments) {
-      const docId = appt.doctor_id || 'unknown'
-      if (!groups[docId]) {
-        groups[docId] = []
-      }
+      const docId = appt.doctor_id || 'unassigned'
+      if (!groups[docId]) groups[docId] = []
       groups[docId].push(appt)
     }
     return groups
-  }, [filteredAppointments])
+  }, [viewMode, filteredAppointments])
 
-  // 2. Week view: grouped by dayKey (YYYY-MM-DD)
+  // Grouping for Week View (by Monday..Sunday day key)
+  const weekDays = useMemo(() => getISTWeekDays(selectedDate), [selectedDate])
   const weekGroupedByDay = useMemo(() => {
-    const groups = {}
-    for (const day of weekDays) {
-      groups[day] = []
+    if (viewMode !== 'week') return {}
+    const map = {}
+    for (const dayKey of weekDays) {
+      map[dayKey] = []
     }
     for (const appt of filteredAppointments) {
-      const apptDateKey = getISTDateKey(appt.slot_start)
-      if (groups[apptDateKey]) {
-        groups[apptDateKey].push(appt)
+      const key = getISTDateKey(appt.slot_start)
+      if (map[key]) {
+        map[key].push(appt)
       }
     }
-    return groups
-  }, [filteredAppointments, weekDays])
+    return map
+  }, [viewMode, weekDays, filteredAppointments])
 
-  // 3. List view: grouped by dateKey
+  // Grouping for List View (by date key)
   const listGroupedByDate = useMemo(() => {
-    const groups = {}
+    if (viewMode !== 'list') return {}
+    const map = {}
     for (const appt of filteredAppointments) {
-      const apptDateKey = getISTDateKey(appt.slot_start)
-      if (!groups[apptDateKey]) {
-        groups[apptDateKey] = []
-      }
-      groups[apptDateKey].push(appt)
+      const key = getISTDateKey(appt.slot_start)
+      if (!map[key]) map[key] = []
+      map[key].push(appt)
     }
-    return groups
-  }, [filteredAppointments])
+    return map
+  }, [viewMode, filteredAppointments])
 
-  // Day View Card status action mutations
-  const executeStatusUpdate = async (apptId, newStatus) => {
+  // Direct status updates (Arrived, Completed, No-show)
+  const executeStatusUpdate = async (apptId, targetStatus) => {
     setSavingId(apptId)
-    setSavingTarget(newStatus)
+    setSavingTarget(targetStatus)
     setSaveErrors((prev) => ({ ...prev, [apptId]: null }))
-    setConfirmState(null)
 
     try {
-      const { data, error: updateError } = await supabase
+      const { error: updateError } = await supabase
         .from('appointments')
-        .update({ status: newStatus })
+        .update({ status: targetStatus })
         .eq('id', apptId)
-        .select()
 
-      if (updateError || !data || data.length !== 1) {
-        setSaveErrors((prev) => ({
-          ...prev,
-          [apptId]: 'Could not save status. Please try again.',
-        }))
-      } else {
-        setAppointments((prev) =>
-          prev.map((a) => (a.id === apptId ? { ...a, status: newStatus } : a))
-        )
-        const labels = {
-          arrived: 'Marked as arrived',
-          completed: 'Marked as completed',
-          no_show: 'Marked as no-show',
-          booked: 'Marked as booked',
-        }
-        setToast({
-          message: labels[newStatus] || 'Status updated',
-          type: 'success',
-        })
+      if (updateError) {
+        throw new Error(updateError.message)
       }
-    } catch {
+
+      // Optimistic update locally
+      setAppointments((prev) =>
+        prev.map((a) => (a.id === apptId ? { ...a, status: targetStatus } : a))
+      )
+
+      setConfirmState(null)
+      setToast({
+        message: `Status updated to ${targetStatus.replace('_', '-')}`,
+        type: 'success',
+      })
+    } catch (err) {
+      console.error('Failed to update appointment status:', err)
       setSaveErrors((prev) => ({
         ...prev,
-        [apptId]: 'Could not save status. Please try again.',
+        [apptId]: 'Could not update status. Please try again.',
       }))
     } finally {
       setSavingId(null)
@@ -426,36 +451,40 @@ export default function Appointments() {
     }
   }
 
+  // Cancel booking via Supabase Edge Function
   const executeCancelBooking = async (apptId) => {
     setSavingId(apptId)
     setSavingTarget('cancelled')
     setSaveErrors((prev) => ({ ...prev, [apptId]: null }))
-    setConfirmState(null)
 
     try {
       const res = await invokeManageAppointment({
         action: 'cancel',
-        appointment_id: Number(apptId),
+        appointment_id: apptId,
       })
 
-      if (res.ok) {
-        setAppointments((prev) =>
-          prev.map((a) => (a.id === apptId ? { ...a, status: 'cancelled' } : a))
-        )
-        setToast({
-          message: 'Booking cancelled and removed from the calendar',
-          type: 'success',
-        })
-      } else {
+      if (!res.ok) {
         setSaveErrors((prev) => ({
           ...prev,
-          [apptId]: res.error || 'Could not cancel booking. Please try again.',
+          [apptId]: res.error || 'Failed to cancel booking. Please try again.',
         }))
+        return
       }
+
+      // Update state locally
+      setAppointments((prev) =>
+        prev.map((a) => (a.id === apptId ? { ...a, status: 'cancelled' } : a))
+      )
+      setConfirmState(null)
+      setToast({
+        message: 'Booking cancelled and synced with Google Calendar',
+        type: 'success',
+      })
     } catch (err) {
+      console.error('Cancellation exception:', err)
       setSaveErrors((prev) => ({
         ...prev,
-        [apptId]: err?.message || 'Could not cancel booking. Please try again.',
+        [apptId]: err?.message || 'Failed to cancel booking. Please try again.',
       }))
     } finally {
       setSavingId(null)
@@ -464,9 +493,8 @@ export default function Appointments() {
   }
 
   const handleStatusClick = (appt, targetStatus) => {
-    if (appt.status === targetStatus) return
-
-    if (targetStatus === 'cancelled') {
+    // Both No-show and Cancelled require explicit confirmation
+    if (targetStatus === 'cancelled' || targetStatus === 'no_show') {
       setConfirmState({ apptId: appt.id, targetStatus })
       setSaveErrors((prev) => ({ ...prev, [appt.id]: null }))
     } else {
@@ -535,15 +563,25 @@ export default function Appointments() {
           </Link>
           <h1 className="page-heading">Appointments</h1>
         </div>
-        <button
-          type="button"
-          onClick={() => setShowNewBooking(true)}
-          className="btn btn-primary btn-new-booking-header"
-          aria-label="Create new booking"
-        >
-          <Plus size={20} aria-hidden="true" />
-          <span>New booking</span>
-        </button>
+        <div className="header-actions-group">
+          <Link
+            to="/closures"
+            className="btn btn-secondary btn-closures-header"
+            aria-label="Clinic closures"
+          >
+            <CalendarOff size={18} aria-hidden="true" />
+            <span className="btn-text-responsive">Clinic closures</span>
+          </Link>
+          <button
+            type="button"
+            onClick={() => setShowNewBooking(true)}
+            className="btn btn-primary btn-new-booking-header"
+            aria-label="Create new booking"
+          >
+            <Plus size={20} aria-hidden="true" />
+            <span>New booking</span>
+          </button>
+        </div>
       </header>
 
       {/* 2. Synchronisation info note */}
@@ -582,10 +620,7 @@ export default function Appointments() {
           onPrevDay={handlePrevDay}
           onNextDay={handleNextDay}
           onToday={handleToday}
-          onDateChange={(newDate) => {
-            setSelectedDate(newDate)
-            setConfirmState(null)
-          }}
+          onDateChange={setSelectedDate}
         />
       )}
 
@@ -595,7 +630,7 @@ export default function Appointments() {
             <button
               type="button"
               onClick={handlePrevWeek}
-              className="btn btn-secondary day-step-btn"
+              className="btn btn-secondary week-step-btn"
               aria-label="Previous week"
             >
               <ChevronLeft size={18} aria-hidden="true" />
@@ -604,25 +639,22 @@ export default function Appointments() {
             <button
               type="button"
               onClick={handleThisWeek}
-              className="btn btn-secondary day-today-btn"
+              className="btn btn-secondary week-this-week-btn"
             >
               This week
             </button>
             <button
               type="button"
               onClick={handleNextWeek}
-              className="btn btn-secondary day-step-btn"
+              className="btn btn-secondary week-step-btn"
               aria-label="Next week"
             >
               <span>Next week</span>
               <ChevronRight size={18} aria-hidden="true" />
             </button>
           </div>
-
-          <div className="day-nav-divider" />
-
-          <div className="week-nav-display-row">
-            <h2 className="week-nav-label-text">
+          <div className="week-range-label">
+            <h2 className="week-range-text">
               {formatISTWeekLabel(weekDays[0], weekDays[6])}
             </h2>
           </div>
@@ -714,6 +746,11 @@ export default function Appointments() {
               Try Again
             </button>
           </div>
+        )}
+
+        {/* Day View Closure Notice */}
+        {viewMode === 'day' && !loading && !error && (
+          <ClosureNotice dateStr={selectedDate} compact={true} />
         )}
 
         {/* Empty States for Day View */}

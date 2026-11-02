@@ -23,6 +23,7 @@ import DayNavigator from './DayNavigator'
 import BookingCard from './BookingCard'
 import NewBookingModal from './NewBookingModal'
 import Toast from './Toast'
+import ClosureNotice from './ClosureNotice'
 
 const HIDE_SYNC_BANNER_KEY = 'smile_care_hide_booking_sync_banner'
 
@@ -98,7 +99,7 @@ export default function TodayBookings() {
         setDoctors(map)
       } catch (err) {
         if (!isMounted) return
-        console.error('Error fetching doctors:', err?.message || err)
+        console.error('Unexpected error loading doctors:', err)
       }
     }
 
@@ -109,36 +110,43 @@ export default function TodayBookings() {
     }
   }, [])
 
-  // 2. Fetch appointments for selectedDate with 60s silent refresh
+  // 2. Fetch appointments for selectedDate with 60s background polling
   useEffect(() => {
     let isMounted = true
 
-    async function loadAppointments(isSilent = false) {
-      if (!isSilent) {
-        setLoading(true)
-      }
-      setError(null)
+    async function loadAppointments() {
+      // Avoid replacing data while staff is actively confirming or updating a status
+      if (isBusyRef.current) return
 
       try {
+        setLoading(true)
+        setError(null)
+
         const { startUTC, endUTC } = getISTDateRange(selectedDate)
 
-        const { data, error: apptError } = await supabase
+        const { data, error: queryError } = await supabase
           .from('appointments')
           .select(
-            'id, call_id, doctor_id, patient_name, patient_phone, reason, slot_start, status, source'
+            'id, doctor_id, patient_name, patient_phone, slot_start, reason, status, source, notes, google_event_id'
           )
           .gte('slot_start', startUTC)
           .lte('slot_start', endUTC)
           .order('slot_start', { ascending: true })
 
         if (!isMounted) return
-        if (apptError) throw apptError
 
-        setAppointments(data || [])
+        if (queryError) {
+          console.error('Error querying bookings:', queryError.message)
+          setError('Failed to load bookings. Please check connection.')
+          setAppointments([])
+        } else {
+          setAppointments(data || [])
+        }
       } catch (err) {
         if (!isMounted) return
-        console.error('Failed to load appointments:', err?.message || err)
-        setError('Unable to load bookings. Please check your connection and try again.')
+        console.error('Unexpected error loading bookings:', err)
+        setError('An unexpected error occurred while loading bookings.')
+        setAppointments([])
       } finally {
         if (isMounted) {
           setLoading(false)
@@ -146,78 +154,169 @@ export default function TodayBookings() {
       }
     }
 
-    loadAppointments(false)
+    loadAppointments()
 
+    // 60-second polling refresh with cleanup
     const interval = setInterval(() => {
-      if (isMounted && !isBusyRef.current) {
-        loadAppointments(true)
+      if (isMounted) {
+        loadAppointments()
       }
     }, 60000)
+
+    // Window focus refresh
+    const handleFocus = () => {
+      if (isMounted) {
+        loadAppointments()
+      }
+    }
+    window.addEventListener('focus', handleFocus)
 
     return () => {
       isMounted = false
       clearInterval(interval)
+      window.removeEventListener('focus', handleFocus)
     }
   }, [selectedDate, reloadKey])
 
-  // Date switch handlers
+  // Date step navigators
   const handlePrevDay = () => {
-    const d = new Date(`${selectedDate}T12:00:00+05:30`)
-    d.setDate(d.getDate() - 1)
-    setSelectedDate(getISTDateKey(d))
-    setConfirmState(null)
+    try {
+      const d = new Date(`${selectedDate}T12:00:00+05:30`)
+      d.setDate(d.getDate() - 1)
+      setSelectedDate(getISTDateKey(d))
+    } catch {
+      // Ignore
+    }
   }
 
   const handleNextDay = () => {
-    const d = new Date(`${selectedDate}T12:00:00+05:30`)
-    d.setDate(d.getDate() + 1)
-    setSelectedDate(getISTDateKey(d))
-    setConfirmState(null)
+    try {
+      const d = new Date(`${selectedDate}T12:00:00+05:30`)
+      d.setDate(d.getDate() + 1)
+      setSelectedDate(getISTDateKey(d))
+    } catch {
+      // Ignore
+    }
   }
 
   const handleToday = () => {
     setSelectedDate(getTodayIST())
-    setConfirmState(null)
   }
 
-  // Regular status update (Arrived, Completed, No-show) - writes directly to appointments.status
-  const executeStatusUpdate = async (apptId, newStatus) => {
+  // Filter counts
+  const filterCounts = useMemo(() => {
+    const counts = {
+      all: 0,
+      upcoming: 0,
+      arrived: 0,
+      completed: 0,
+      no_show: 0,
+      cancelled: 0,
+    }
+
+    for (const appt of appointments) {
+      if (appt.status !== 'cancelled') {
+        counts.all++
+      }
+      if (appt.status === 'booked' || appt.status === 'confirmed') {
+        counts.upcoming++
+      } else if (appt.status === 'arrived') {
+        counts.arrived++
+      } else if (appt.status === 'completed') {
+        counts.completed++
+      } else if (appt.status === 'no_show') {
+        counts.no_show++
+      } else if (appt.status === 'cancelled') {
+        counts.cancelled++
+      }
+    }
+    return counts
+  }, [appointments])
+
+  // Reset filter to 'all' if selected filter has 0 items
+  const effectiveFilter = useMemo(() => {
+    if (activeFilter !== 'all' && filterCounts[activeFilter] === 0) {
+      return 'all'
+    }
+    return activeFilter
+  }, [activeFilter, filterCounts])
+
+  // Filtered list
+  const filteredAppointments = useMemo(() => {
+    return appointments.filter((appt) => {
+      if (effectiveFilter === 'all') {
+        return appt.status !== 'cancelled'
+      }
+      if (effectiveFilter === 'upcoming') {
+        return appt.status === 'booked' || appt.status === 'confirmed'
+      }
+      return appt.status === effectiveFilter
+    })
+  }, [appointments, effectiveFilter])
+
+  // Next up appointment for TODAY
+  const todayIST = getTodayIST()
+  const isToday = selectedDate === todayIST
+  const isSunday = isSundayIST(selectedDate)
+  const isPastDay = selectedDate < todayIST
+  const formattedDateLabel = formatISTDateLabel(selectedDate)
+
+  const nextUpApptId = useMemo(() => {
+    if (!isToday) return null
+    const now = Date.now()
+    const upcoming = appointments.find((a) => {
+      const isBookedOrConfirmed = a.status === 'booked' || a.status === 'confirmed'
+      if (!isBookedOrConfirmed) return false
+      return new Date(a.slot_start).getTime() > now
+    })
+    return upcoming ? upcoming.id : null
+  }, [isToday, appointments])
+
+  // Multiple doctors grouping
+  const doctorGroups = useMemo(() => {
+    const docIds = new Set(filteredAppointments.map((a) => a.doctor_id))
+    if (docIds.size <= 1) return null
+
+    const groups = {}
+    for (const appt of filteredAppointments) {
+      const docId = appt.doctor_id || 'unassigned'
+      if (!groups[docId]) groups[docId] = []
+      groups[docId].push(appt)
+    }
+    return groups
+  }, [filteredAppointments])
+
+  // Direct status updates (Arrived, Completed, No-show)
+  const executeStatusUpdate = async (apptId, targetStatus) => {
     setSavingId(apptId)
-    setSavingTarget(newStatus)
+    setSavingTarget(targetStatus)
     setSaveErrors((prev) => ({ ...prev, [apptId]: null }))
-    setConfirmState(null)
 
     try {
-      const { data, error: updateError } = await supabase
+      const { error: updateError } = await supabase
         .from('appointments')
-        .update({ status: newStatus })
+        .update({ status: targetStatus })
         .eq('id', apptId)
-        .select()
 
-      if (updateError || !data || data.length !== 1) {
-        setSaveErrors((prev) => ({
-          ...prev,
-          [apptId]: 'Could not save status. Please try again.',
-        }))
-      } else {
-        setAppointments((prev) =>
-          prev.map((a) => (a.id === apptId ? { ...a, status: newStatus } : a))
-        )
-        const labels = {
-          arrived: 'Marked as arrived',
-          completed: 'Marked as completed',
-          no_show: 'Marked as no-show',
-          booked: 'Marked as booked',
-        }
-        setToast({
-          message: labels[newStatus] || 'Status updated',
-          type: 'success',
-        })
+      if (updateError) {
+        throw new Error(updateError.message)
       }
-    } catch {
+
+      // Optimistic update locally
+      setAppointments((prev) =>
+        prev.map((a) => (a.id === apptId ? { ...a, status: targetStatus } : a))
+      )
+
+      setConfirmState(null)
+      setToast({
+        message: `Status updated to ${targetStatus.replace('_', '-')}`,
+        type: 'success',
+      })
+    } catch (err) {
+      console.error('Failed to update status:', err)
       setSaveErrors((prev) => ({
         ...prev,
-        [apptId]: 'Could not save status. Please try again.',
+        [apptId]: 'Could not update status. Please try again.',
       }))
     } finally {
       setSavingId(null)
@@ -225,37 +324,40 @@ export default function TodayBookings() {
     }
   }
 
-  // Cancel booking action - calls manage-appointment edge function
+  // Cancel booking via Supabase Edge Function
   const executeCancelBooking = async (apptId) => {
     setSavingId(apptId)
     setSavingTarget('cancelled')
     setSaveErrors((prev) => ({ ...prev, [apptId]: null }))
-    setConfirmState(null)
 
     try {
       const res = await invokeManageAppointment({
         action: 'cancel',
-        appointment_id: Number(apptId),
+        appointment_id: apptId,
       })
 
-      if (res.ok) {
-        setAppointments((prev) =>
-          prev.map((a) => (a.id === apptId ? { ...a, status: 'cancelled' } : a))
-        )
-        setToast({
-          message: 'Booking cancelled and removed from the calendar',
-          type: 'success',
-        })
-      } else {
+      if (!res.ok) {
         setSaveErrors((prev) => ({
           ...prev,
-          [apptId]: res.error || 'Could not cancel booking. Please try again.',
+          [apptId]: res.error || 'Failed to cancel booking. Please try again.',
         }))
+        return
       }
+
+      // Update state locally
+      setAppointments((prev) =>
+        prev.map((a) => (a.id === apptId ? { ...a, status: 'cancelled' } : a))
+      )
+      setConfirmState(null)
+      setToast({
+        message: 'Booking cancelled and synced with Google Calendar',
+        type: 'success',
+      })
     } catch (err) {
+      console.error('Cancellation exception:', err)
       setSaveErrors((prev) => ({
         ...prev,
-        [apptId]: err?.message || 'Could not cancel booking. Please try again.',
+        [apptId]: err?.message || 'Failed to cancel booking. Please try again.',
       }))
     } finally {
       setSavingId(null)
@@ -263,11 +365,9 @@ export default function TodayBookings() {
     }
   }
 
-  // Handle status button click
   const handleStatusClick = (appt, targetStatus) => {
-    if (appt.status === targetStatus) return
-
-    if (targetStatus === 'cancelled') {
+    // Both No-show and Cancelled require explicit confirmation
+    if (targetStatus === 'cancelled' || targetStatus === 'no_show') {
       setConfirmState({ apptId: appt.id, targetStatus })
       setSaveErrors((prev) => ({ ...prev, [appt.id]: null }))
     } else {
@@ -295,94 +395,13 @@ export default function TodayBookings() {
     setReloadKey((prev) => prev + 1)
   }
 
-  // Compute status filter counts over all loaded bookings for the viewed day
-  const filterCounts = useMemo(() => {
-    const counts = {
-      all: appointments.length,
-      upcoming: 0,
-      arrived: 0,
-      completed: 0,
-      no_show: 0,
-      cancelled: 0,
-    }
-
-    for (const appt of appointments) {
-      if (appt.status === 'booked' || appt.status === 'confirmed') {
-        counts.upcoming += 1
-      } else if (counts[appt.status] !== undefined) {
-        counts[appt.status] += 1
-      }
-    }
-
-    return counts
-  }, [appointments])
-
-  // Fallback to 'all' if selected filter count drops to zero
-  const effectiveFilter = useMemo(() => {
-    if (activeFilter === 'all') return 'all'
-    if (!filterCounts[activeFilter] || filterCounts[activeFilter] === 0) {
-      return 'all'
-    }
-    return activeFilter
-  }, [activeFilter, filterCounts])
-
-  // Filtered appointments list
-  const filteredAppointments = useMemo(() => {
-    if (effectiveFilter === 'all') return appointments
-    if (effectiveFilter === 'upcoming') {
-      return appointments.filter(
-        (a) => a.status === 'booked' || a.status === 'confirmed'
-      )
-    }
-    return appointments.filter((a) => a.status === effectiveFilter)
-  }, [appointments, effectiveFilter])
-
-  const todayIST = getTodayIST()
-  const isToday = selectedDate === todayIST
-  const isSunday = isSundayIST(selectedDate)
-  const isPastDay = selectedDate < todayIST
-  const formattedDateLabel = formatISTDateLabel(selectedDate)
-
-  // Determine "NEXT UP" index and "Time has passed" for today's view
-  const nextUpApptId = useMemo(() => {
-    if (!isToday) return null
-    const now = Date.now()
-    const upcoming = appointments.find((a) => {
-      const isBookedOrConfirmed = a.status === 'booked' || a.status === 'confirmed'
-      if (!isBookedOrConfirmed) return false
-      const slotTime = new Date(a.slot_start).getTime()
-      return slotTime > now
-    })
-    return upcoming ? upcoming.id : null
-  }, [isToday, appointments])
-
-  // Group appointments by doctor if more than one doctor has bookings
-  const doctorGroups = useMemo(() => {
-    const distinctDoctors = new Set(
-      filteredAppointments.map((a) => a.doctor_id || 'unknown')
-    )
-    if (distinctDoctors.size <= 1) {
-      return null // Don't group by doctor if only 1 doctor
-    }
-
-    const groups = {}
-    for (const a of filteredAppointments) {
-      const docId = a.doctor_id || 'unknown'
-      if (!groups[docId]) {
-        groups[docId] = []
-      }
-      groups[docId].push(a)
-    }
-    return groups
-  }, [filteredAppointments])
-
   const totalBookingsText = `${filteredAppointments.length} ${
     filteredAppointments.length === 1 ? 'booking' : 'bookings'
   }`
 
   return (
     <div className="page-container">
-      {/* Toast Alert */}
+      {/* Toast alert */}
       {toast && (
         <Toast
           message={toast.message}
@@ -411,7 +430,7 @@ export default function TodayBookings() {
         </button>
       </header>
 
-      {/* 2. Info Sync Banner */}
+      {/* 2. Synchronisation info note */}
       {showSyncBanner && (
         <div className="sync-info-banner" role="note">
           <div className="sync-banner-content">
@@ -432,7 +451,7 @@ export default function TodayBookings() {
         </div>
       )}
 
-      {/* 3. Day Navigator Card */}
+      {/* 3. Day Navigator */}
       <DayNavigator
         selectedDate={selectedDate}
         todayIST={todayIST}
@@ -440,13 +459,10 @@ export default function TodayBookings() {
         onPrevDay={handlePrevDay}
         onNextDay={handleNextDay}
         onToday={handleToday}
-        onDateChange={(newDate) => {
-          setSelectedDate(newDate)
-          setConfirmState(null)
-        }}
+        onDateChange={setSelectedDate}
       />
 
-      {/* 4. Status Filter Chips (Single Select) */}
+      {/* 4. Filter chips bar */}
       <div
         className="booking-filter-chips-bar"
         role="tablist"
@@ -569,6 +585,11 @@ export default function TodayBookings() {
               Try Again
             </button>
           </div>
+        )}
+
+        {/* Closure Notice */}
+        {!loading && !error && (
+          <ClosureNotice dateStr={selectedDate} compact={true} />
         )}
 
         {/* Empty State: Sunday */}
