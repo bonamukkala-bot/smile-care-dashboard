@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import {
   UserX,
   CalendarDays,
@@ -18,6 +18,9 @@ import {
   formatClosureWindow,
   formatClosureDateRange,
   formatTimeAgo,
+  getTodayIST,
+  addDaysToISTDate,
+  getISTDateKey,
   invokeManageClosure,
 } from '../lib/helpers'
 import AffectedBookingsList from './AffectedBookingsList'
@@ -42,6 +45,7 @@ export default function ClosureCard({
   closure,
   onRemoved,
   defaultExpanded = false,
+  isHighlighted = false,
 }) {
   const [expanded, setExpanded] = useState(defaultExpanded)
   const [bookings, setBookings] = useState([])
@@ -50,7 +54,7 @@ export default function ClosureCard({
   const [isRemoving, setIsRemoving] = useState(false)
   const [removeError, setRemoveError] = useState(null)
 
-  // Track if closure is active right now using pure state + timer
+  // Track if closure is actively occurring right now using pure state + interval
   const [isActiveNow, setIsActiveNow] = useState(() => {
     const now = Date.now()
     const startMs = new Date(closure.start_at).getTime()
@@ -78,7 +82,7 @@ export default function ClosureCard({
     }
   }, [defaultExpanded])
 
-  // Fetch bookings still to handle (refresh on mount, focus, and every 60s)
+  // Fetch bookings still to handle for this closure
   useEffect(() => {
     let isMounted = true
 
@@ -124,9 +128,90 @@ export default function ClosureCard({
 
   const isEmergency = closure.reason === 'emergency'
   const reasonLabel = formatClosureReason(closure.reason)
-  const dateRangeLabel = formatClosureDateRange(closure.start_at, closure.end_at)
   const windowLabel = formatClosureWindow(closure.start_at, closure.end_at)
   const addedAgo = formatTimeAgo(closure.created_at)
+
+  // Date tile labels (Month + Day)
+  const { tileMonth, tileDay, isMultiDay } = useMemo(() => {
+    try {
+      const s = new Date(closure.start_at)
+      const e = new Date(closure.end_at)
+      const sKey = getISTDateKey(s)
+      const eKey = getISTDateKey(e)
+      const isMulti = sKey !== eKey
+
+      const sMonth = new Intl.DateTimeFormat('en-US', {
+        timeZone: 'Asia/Kolkata',
+        month: 'short',
+      })
+        .format(s)
+        .toUpperCase()
+
+      const sDay = new Intl.DateTimeFormat('en-US', {
+        timeZone: 'Asia/Kolkata',
+        day: 'numeric',
+      }).format(s)
+
+      if (!isMulti) {
+        return { tileMonth: sMonth, tileDay: sDay, isMultiDay: false }
+      }
+
+      const eDay = new Intl.DateTimeFormat('en-US', {
+        timeZone: 'Asia/Kolkata',
+        day: 'numeric',
+      }).format(e)
+
+      return {
+        tileMonth: sMonth,
+        tileDay: `${sDay}–${eDay}`,
+        isMultiDay: true,
+      }
+    } catch {
+      return { tileMonth: 'DATE', tileDay: '-', isMultiDay: false }
+    }
+  }, [closure.start_at, closure.end_at])
+
+  // Plain words time description
+  const plainTimeLabel = useMemo(() => {
+    if (isMultiDay) {
+      return formatClosureDateRange(closure.start_at, closure.end_at)
+    }
+    if (windowLabel === 'Full day') {
+      return 'Whole day'
+    }
+    return windowLabel
+  }, [isMultiDay, closure.start_at, closure.end_at, windowLabel])
+
+  // Relative timing chip
+  const relativeChip = useMemo(() => {
+    if (isActiveNow) {
+      return { label: 'Happening now', isPulsing: true }
+    }
+    const today = getTodayIST()
+    const tomorrow = addDaysToISTDate(today, 1)
+    const startKey = getISTDateKey(closure.start_at)
+
+    if (startKey === today) {
+      return { label: 'Today', isPulsing: false }
+    }
+    if (startKey === tomorrow) {
+      return { label: 'Tomorrow', isPulsing: false }
+    }
+    if (startKey > tomorrow) {
+      const sDate = new Date(`${startKey}T12:00:00+05:30`)
+      const tDate = new Date(`${today}T12:00:00+05:30`)
+      const diffDays = Math.round((sDate - tDate) / (1000 * 60 * 60 * 24))
+      return { label: `In ${diffDays} days`, isPulsing: false }
+    }
+    return null
+  }, [isActiveNow, closure.start_at])
+
+  // Note display condition: non-empty AND not repeat of reason label (case-insensitive)
+  const cleanNote = (closure.note || '').trim()
+  const showNote =
+    cleanNote.length > 0 &&
+    cleanNote.toLowerCase() !== reasonLabel.toLowerCase() &&
+    cleanNote.toLowerCase() !== (closure.reason || '').toLowerCase()
 
   const handleRemove = async () => {
     if (isRemoving) return
@@ -155,154 +240,167 @@ export default function ClosureCard({
   return (
     <article
       ref={cardRef}
-      className={`card closure-card ${isEmergency ? 'closure-card-emergency' : 'closure-card-standard'}`}
-      aria-label={`Closure: ${reasonLabel}, ${dateRangeLabel}`}
+      className={`card closure-card ${
+        isEmergency ? 'closure-card-emergency' : 'closure-card-standard'
+      } ${isHighlighted ? 'closure-card-highlighted' : ''}`}
+      aria-label={`Closure: ${reasonLabel}, ${plainTimeLabel}`}
     >
-      <div className="closure-card-main">
-        {/* Top meta row: Reason badge + ACTIVE NOW tag + Added time */}
-        <div className="closure-card-top-meta">
-          <div className="closure-badges-group">
-            <span
-              className={`closure-reason-badge ${
-                isEmergency ? 'reason-badge-emergency' : 'reason-badge-standard'
-              }`}
-            >
-              {getReasonIcon(closure.reason)}
-              <span>{reasonLabel}</span>
-            </span>
+      <div className="closure-card-inner-layout">
+        {/* Date Tile on Left */}
+        <div className="closure-date-tile" aria-hidden="true">
+          <span className="closure-tile-month">{tileMonth}</span>
+          <span className="closure-tile-day">{tileDay}</span>
+        </div>
 
-            {isActiveNow && (
-              <span className="closure-active-now-tag" role="status">
-                <span className="active-dot-pulsing" aria-hidden="true" />
-                ACTIVE NOW
+        {/* Main Content Area */}
+        <div className="closure-card-body">
+          {/* Top row: Reason title + relative chip */}
+          <div className="closure-body-header">
+            <div className="closure-title-group">
+              <span
+                className={`closure-reason-tag ${
+                  isEmergency ? 'tag-emergency' : 'tag-standard'
+                }`}
+              >
+                {getReasonIcon(closure.reason)}
+                <span>{reasonLabel}</span>
               </span>
+
+              {relativeChip && (
+                <span
+                  className={`closure-relative-chip ${
+                    relativeChip.isPulsing ? 'chip-happening-now' : ''
+                  }`}
+                  role={relativeChip.isPulsing ? 'status' : undefined}
+                >
+                  {relativeChip.isPulsing && (
+                    <span className="active-dot-pulsing" aria-hidden="true" />
+                  )}
+                  {relativeChip.label}
+                </span>
+              )}
+            </div>
+
+            {addedAgo && (
+              <span className="closure-added-time">Added {addedAgo}</span>
             )}
           </div>
 
-          {addedAgo && (
-            <span className="closure-added-time">Added {addedAgo}</span>
-          )}
-        </div>
+          {/* Plain-words time description */}
+          <div className="closure-time-desc-row">
+            <Clock size={15} className="closure-clock-icon" aria-hidden="true" />
+            <strong className="closure-plain-time">{plainTimeLabel}</strong>
+          </div>
 
-        {/* Date and Time window */}
-        <div className="closure-card-time-row">
-          <h3 className="closure-card-date">{dateRangeLabel}</h3>
-          <span className="closure-card-window-pill">
-            <Clock size={14} aria-hidden="true" />
-            <span>{windowLabel}</span>
-          </span>
-        </div>
-
-        {/* Note if present */}
-        {closure.note && (
-          <p className="closure-card-note">{closure.note}</p>
-        )}
-
-        {/* Bookings to handle status bar */}
-        <div className="closure-card-bookings-bar">
-          {loadingBookings ? (
-            <div className="closure-bookings-loading-pill">
-              <Loader2 size={15} className="spinner-inline" aria-hidden="true" />
-              <span>Checking affected bookings...</span>
-            </div>
-          ) : bookings.length > 0 ? (
-            <button
-              type="button"
-              onClick={() => setExpanded((prev) => !prev)}
-              className="btn btn-closure-handle-bookings"
-              aria-expanded={expanded}
-              aria-label={`${bookings.length} bookings to handle. Click to ${
-                expanded ? 'collapse' : 'expand'
-              } list.`}
-            >
-              <AlertTriangle size={16} aria-hidden="true" />
-              <span>
-                <strong>{bookings.length}</strong> {bookings.length === 1 ? 'booking' : 'bookings'} to handle
-              </span>
-              {expanded ? (
-                <ChevronUp size={16} aria-hidden="true" />
-              ) : (
-                <ChevronDown size={16} aria-hidden="true" />
-              )}
-            </button>
-          ) : (
-            <span className="closure-no-bookings-pill" role="status">
-              <CheckCircle2 size={16} aria-hidden="true" />
-              <span>No bookings affected</span>
-            </span>
+          {/* Quote note if present and meaningful */}
+          {showNote && (
+            <p className="closure-quote-note">“{cleanNote}”</p>
           )}
 
-          {/* Remove closure trigger button */}
-          {!confirmRemove && (
-            <button
-              type="button"
-              onClick={() => {
-                setConfirmRemove(true)
-                setRemoveError(null)
-              }}
-              className="btn btn-secondary btn-sm btn-remove-closure"
-              aria-label="Remove this closure"
-            >
-              <Trash2 size={15} aria-hidden="true" />
-              <span>Remove closure</span>
-            </button>
-          )}
-        </div>
-
-        {/* Inline Confirmation for Removing Closure */}
-        {confirmRemove && (
-          <div className="closure-confirm-remove-box" role="alert">
-            <p className="confirm-remove-prompt">
-              Remove this closure? The blocked times will open again on the calendar and can be booked.
-            </p>
-
-            {removeError && (
-              <div className="closure-inline-error" role="alert">
-                <AlertTriangle size={15} aria-hidden="true" />
-                <span>{removeError}</span>
+          {/* Footer Bar: Impact callout + Remove trigger */}
+          <div className="closure-card-footer-bar">
+            {loadingBookings ? (
+              <div className="closure-bookings-loading-pill">
+                <Loader2 size={14} className="spinner-inline" aria-hidden="true" />
+                <span>Checking affected bookings...</span>
               </div>
-            )}
-
-            <div className="confirm-remove-actions">
+            ) : bookings.length > 0 ? (
               <button
                 type="button"
-                onClick={handleRemove}
-                disabled={isRemoving}
-                className="btn btn-danger btn-sm"
+                onClick={() => setExpanded((prev) => !prev)}
+                className="btn btn-closure-handle-bookings"
+                aria-expanded={expanded}
+                aria-label={`${bookings.length} bookings to handle. Click to ${
+                  expanded ? 'collapse' : 'expand'
+                } list.`}
               >
-                {isRemoving ? (
-                  <>
-                    <Loader2 size={15} className="spinner-inline" aria-hidden="true" />
-                    <span>Removing...</span>
-                  </>
+                <AlertTriangle size={15} aria-hidden="true" />
+                <span>
+                  <strong>{bookings.length}</strong>{' '}
+                  {bookings.length === 1 ? 'booking' : 'bookings'} to handle
+                </span>
+                {expanded ? (
+                  <ChevronUp size={15} aria-hidden="true" />
                 ) : (
-                  'Yes, remove closure'
+                  <ChevronDown size={15} aria-hidden="true" />
                 )}
               </button>
+            ) : (
+              <span className="closure-no-bookings-pill" role="status">
+                <CheckCircle2 size={15} aria-hidden="true" />
+                <span>No bookings affected</span>
+              </span>
+            )}
+
+            {!confirmRemove && (
               <button
                 type="button"
                 onClick={() => {
-                  setConfirmRemove(false)
+                  setConfirmRemove(true)
                   setRemoveError(null)
                 }}
-                disabled={isRemoving}
-                className="btn btn-secondary btn-sm"
+                className="btn-remove-closure-quiet"
+                aria-label="Remove this closure"
               >
-                No, keep it
+                <Trash2 size={14} aria-hidden="true" />
+                <span>Remove closure</span>
               </button>
-            </div>
+            )}
           </div>
-        )}
+
+          {/* Inline confirmation for remove */}
+          {confirmRemove && (
+            <div className="closure-confirm-remove-box" role="alert">
+              <p className="confirm-remove-prompt">
+                Remove this closure? The blocked times will open again on the calendar and
+                can be booked.
+              </p>
+
+              {removeError && (
+                <div className="closure-inline-error" role="alert">
+                  <AlertTriangle size={15} aria-hidden="true" />
+                  <span>{removeError}</span>
+                </div>
+              )}
+
+              <div className="confirm-remove-actions">
+                <button
+                  type="button"
+                  onClick={handleRemove}
+                  disabled={isRemoving}
+                  className="btn btn-danger btn-sm"
+                >
+                  {isRemoving ? (
+                    <>
+                      <Loader2 size={14} className="spinner-inline" aria-hidden="true" />
+                      <span>Removing...</span>
+                    </>
+                  ) : (
+                    'Yes, remove closure'
+                  )}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setConfirmRemove(false)
+                    setRemoveError(null)
+                  }}
+                  disabled={isRemoving}
+                  className="btn btn-secondary btn-sm"
+                >
+                  No, keep it
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
 
-      {/* Expandable Bookings to Handle Section */}
+      {/* Expandable Affected Bookings List */}
       {expanded && (
         <div className="closure-card-expanded-area">
           <div className="expanded-divider" />
           <div className="expanded-content">
-            <h4 className="expanded-title">
-              Bookings falling in this closure window
-            </h4>
             <AffectedBookingsList bookings={bookings} loading={loadingBookings} />
           </div>
         </div>

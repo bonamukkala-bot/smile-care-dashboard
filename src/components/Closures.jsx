@@ -1,12 +1,12 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import {
   ArrowLeft,
   Plus,
   Info,
-  X,
   CalendarOff,
   AlertCircle,
+  AlertTriangle,
   ChevronDown,
   ChevronUp,
   Loader2,
@@ -17,12 +17,14 @@ import {
   formatClosureReason,
   formatClosureWindow,
   formatClosureDateRange,
+  getTodayIST,
+  canCloseRestOfToday,
 } from '../lib/helpers'
+import ClosureTodayStatus from './ClosureTodayStatus'
+import ClosureDayStrip from './ClosureDayStrip'
 import ClosureCard from './ClosureCard'
 import AddClosureDialog from './AddClosureDialog'
 import Toast from './Toast'
-
-const DISMISS_CLOSURES_INFO_KEY = 'smile_care_dismiss_closures_info_banner'
 
 export default function Closures() {
   const [closures, setClosures] = useState([])
@@ -32,32 +34,29 @@ export default function Closures() {
 
   // Dialog & Toast states
   const [showAddDialog, setShowAddDialog] = useState(false)
-  const [toast, setToast] = useState(null) // { message, type }
+  const [dialogInitialDate, setDialogInitialDate] = useState(null)
+  const [dialogInitialType, setDialogInitialType] = useState(null)
+  const [toast, setToast] = useState(null)
   const [autoExpandId, setAutoExpandId] = useState(null)
+  const [highlightedId, setHighlightedId] = useState(null)
 
-  // Info banner dismissal state
-  const [showInfoBanner, setShowInfoBanner] = useState(() => {
-    try {
-      return localStorage.getItem(DISMISS_CLOSURES_INFO_KEY) !== 'true'
-    } catch {
-      return true
-    }
-  })
+  // How closures work help toggle
+  const [showHelpPanel, setShowHelpPanel] = useState(false)
 
-  // Past closures state (lazy loaded on user toggle)
+  // Attention banner state (total unhandled bookings across active closures)
+  const [attentionData, setAttentionData] = useState({ count: 0, firstId: null })
+
+  // Past closures state
   const [pastExpanded, setPastExpanded] = useState(false)
   const [pastClosures, setPastClosures] = useState([])
   const [loadingPast, setLoadingPast] = useState(false)
   const [pastLoaded, setPastLoaded] = useState(false)
 
-  const handleDismissBanner = () => {
-    setShowInfoBanner(false)
-    try {
-      localStorage.setItem(DISMISS_CLOSURES_INFO_KEY, 'true')
-    } catch {
-      // Ignore
-    }
-  }
+  const todayIST = useMemo(() => getTodayIST(), [])
+  const canQuickClose = useMemo(() => canCloseRestOfToday(), [])
+
+  // Ref to hold closure card DOM nodes for scrolling
+  const closureCardRefs = useRef({})
 
   // Load active and upcoming closures
   useEffect(() => {
@@ -80,8 +79,40 @@ export default function Closures() {
           throw new Error(fetchErr.message)
         }
 
+        const activeList = data || []
         setError(null)
-        setClosures(data || [])
+        setClosures(activeList)
+
+        // Informational check: calculate total unhandled bookings across all active closures
+        if (activeList.length > 0) {
+          let totalCount = 0
+          let firstIdWithBookings = null
+
+          for (const cl of activeList) {
+            const { count, error: apptErr } = await supabase
+              .from('appointments')
+              .select('id', { count: 'exact', head: true })
+              .eq('doctor_id', 1)
+              .in('status', ['booked', 'confirmed'])
+              .gte('slot_start', cl.start_at)
+              .lt('slot_start', cl.end_at)
+
+            if (!apptErr && typeof count === 'number' && count > 0) {
+              totalCount += count
+              if (!firstIdWithBookings) {
+                firstIdWithBookings = cl.id
+              }
+            }
+          }
+
+          if (isMounted) {
+            setAttentionData({ count: totalCount, firstId: firstIdWithBookings })
+          }
+        } else {
+          if (isMounted) {
+            setAttentionData({ count: 0, firstId: null })
+          }
+        }
       } catch (err) {
         if (!isMounted) return
         console.error('Error fetching closures:', err)
@@ -149,6 +180,13 @@ export default function Closures() {
     }
   }
 
+  // Open dialog with optional parameters
+  const handleOpenAdd = ({ date = null, type = null } = {}) => {
+    setDialogInitialDate(date)
+    setDialogInitialType(type)
+    setShowAddDialog(true)
+  }
+
   // Handle successful creation of closure
   const handleCreateSuccess = (result) => {
     const affectedCount = result?.affected_count ?? 0
@@ -161,6 +199,8 @@ export default function Closures() {
       })
       if (newClosureId) {
         setAutoExpandId(newClosureId)
+        setHighlightedId(newClosureId)
+        setTimeout(() => setHighlightedId(null), 3000)
       }
     } else {
       setToast({
@@ -169,7 +209,6 @@ export default function Closures() {
       })
     }
 
-    // Refresh list
     setReloadKey((k) => k + 1)
   }
 
@@ -180,8 +219,46 @@ export default function Closures() {
       type: 'success',
     })
     setReloadKey((k) => k + 1)
-    setPastLoaded(false) // invalidate past list so it refreshes if opened
+    setPastLoaded(false)
   }
+
+  // Scroll to closure and expand its bookings
+  const handleReviewAttention = () => {
+    if (attentionData.firstId) {
+      setAutoExpandId(attentionData.firstId)
+      setHighlightedId(attentionData.firstId)
+      setTimeout(() => setHighlightedId(null), 3000)
+
+      const el = closureCardRefs.current[attentionData.firstId]
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      }
+    }
+  }
+
+  // Find active closure that overlaps today in IST
+  const todayClosure = useMemo(() => {
+    const todayStartUTC = new Date(`${todayIST}T00:00:00+05:30`).toISOString()
+    const todayEndUTC = new Date(`${todayIST}T23:59:59.999+05:30`).toISOString()
+    return closures.find((cl) => cl.start_at < todayEndUTC && cl.end_at > todayStartUTC) || null
+  }, [closures, todayIST])
+
+  // Partition closures into "Happening now" and "Coming up"
+  const { happeningNowList, comingUpList } = useMemo(() => {
+    const nowISO = new Date().toISOString()
+    const happening = []
+    const coming = []
+
+    for (const cl of closures) {
+      if (cl.start_at <= nowISO && cl.end_at >= nowISO) {
+        happening.push(cl)
+      } else {
+        coming.push(cl)
+      }
+    }
+
+    return { happeningNowList: happening, comingUpList: coming }
+  }, [closures])
 
   return (
     <div className="page-container closures-page-container">
@@ -194,18 +271,31 @@ export default function Closures() {
         />
       )}
 
-      {/* a) Header */}
+      {/* Header */}
       <header className="page-header page-header-with-actions">
         <div className="header-left">
           <Link to="/" className="btn btn-back">
             <ArrowLeft size={18} aria-hidden="true" />
             <span>Back</span>
           </Link>
-          <h1 className="page-heading">Clinic closures</h1>
+          <div className="header-title-with-help">
+            <h1 className="page-heading">Clinic closures</h1>
+            <button
+              type="button"
+              onClick={() => setShowHelpPanel((prev) => !prev)}
+              className="btn-closures-help-toggle"
+              aria-expanded={showHelpPanel}
+              aria-label="How closures work help"
+            >
+              <Info size={16} aria-hidden="true" />
+              <span>How closures work</span>
+            </button>
+          </div>
         </div>
+
         <button
           type="button"
-          onClick={() => setShowAddDialog(true)}
+          onClick={() => handleOpenAdd()}
           className="btn btn-primary btn-add-closure-header"
           aria-label="Add clinic closure"
         >
@@ -214,23 +304,26 @@ export default function Closures() {
         </button>
       </header>
 
-      {/* b) Dismissible Info Note */}
-      {showInfoBanner && (
-        <div className="sync-info-banner" role="note">
-          <div className="sync-banner-content">
-            <Info size={18} className="sync-banner-icon" aria-hidden="true" />
-            <p className="sync-banner-text">
-              A closure blocks the calendar, so the voice agent and the dashboard stop offering those times. Existing bookings are not changed. Move or cancel them and call the patients.
-            </p>
+      {/* Inline Help Panel: 3 bullets */}
+      {showHelpPanel && (
+        <div className="closures-how-it-works-panel" role="region" aria-label="How closures work">
+          <div className="how-it-works-header">
+            <Info size={18} className="how-it-works-icon" aria-hidden="true" />
+            <strong>How clinic closures work</strong>
           </div>
-          <button
-            type="button"
-            onClick={handleDismissBanner}
-            className="sync-banner-dismiss-btn"
-            aria-label="Dismiss info banner"
-          >
-            <X size={16} />
-          </button>
+          <ul className="how-it-works-list">
+            <li>
+              A closure blocks the calendar, so the voice agent and the dashboard stop offering
+              those times to callers.
+            </li>
+            <li>
+              Existing bookings are <strong>not</strong> changed or cancelled automatically.
+            </li>
+            <li>
+              Call affected patients, then move or cancel their bookings directly from the
+              closure card.
+            </li>
+          </ul>
         </div>
       )}
 
@@ -263,51 +356,158 @@ export default function Closures() {
           </div>
         )}
 
-        {/* c) Section "Active and upcoming" */}
+        {/* Main interactive content */}
         {!loading && !error && (
           <>
+            {/* 1. Today Status Card */}
+            <ClosureTodayStatus
+              todayClosure={todayClosure}
+              onOpenAdd={handleOpenAdd}
+            />
+
+            {/* 2. 14-day horizontally scrollable day strip */}
+            <ClosureDayStrip
+              closures={closures}
+              onSelectDate={(selectedDateKey) =>
+                handleOpenAdd({ date: selectedDateKey, type: 'whole_day' })
+              }
+            />
+
+            {/* 3. Amber "Needs your attention" panel if active closures have bookings */}
+            {attentionData.count > 0 && (
+              <div className="card closures-attention-banner" role="alert">
+                <div className="attention-banner-left">
+                  <div className="attention-icon-box">
+                    <AlertTriangle size={22} className="attention-alert-icon" aria-hidden="true" />
+                  </div>
+                  <div className="attention-banner-text">
+                    <strong className="attention-banner-title">
+                      {attentionData.count}{' '}
+                      {attentionData.count === 1 ? 'booking needs' : 'bookings need'} to be moved
+                      or cancelled
+                    </strong>
+                    <p className="attention-banner-sub">
+                      Review affected bookings, call the patients, and reschedule or cancel their
+                      appointments.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleReviewAttention}
+                  className="btn btn-warning-action"
+                  aria-label="Review closures with bookings requiring attention"
+                >
+                  Review bookings →
+                </button>
+              </div>
+            )}
+
+            {/* 4. Closures List or Empty State */}
             {closures.length === 0 ? (
-              /* e) Empty state for no active closures */
               <div className="card closures-empty-panel">
                 <div className="closures-empty-icon-tile">
                   <CalendarOff size={32} aria-hidden="true" />
                 </div>
                 <h2 className="empty-title">No closures planned</h2>
-                <p className="empty-desc">
-                  Block the clinic for doctor leave, events, emergencies or holidays.
-                </p>
-                <button
-                  type="button"
-                  onClick={() => setShowAddDialog(true)}
-                  className="btn btn-primary"
-                >
-                  <Plus size={18} aria-hidden="true" />
-                  <span>Add closure</span>
-                </button>
+                <p className="empty-desc">The clinic is open on its normal hours.</p>
+                <div className="closures-empty-actions-row">
+                  <button
+                    type="button"
+                    onClick={() => handleOpenAdd({ type: 'whole_day' })}
+                    className="btn btn-primary"
+                  >
+                    <Plus size={18} aria-hidden="true" />
+                    <span>Plan leave or a holiday</span>
+                  </button>
+                  {canQuickClose && (
+                    <button
+                      type="button"
+                      onClick={() => handleOpenAdd({ type: 'rest_of_today' })}
+                      className="btn btn-secondary"
+                    >
+                      <Clock size={16} aria-hidden="true" />
+                      <span>Close rest of today</span>
+                    </button>
+                  )}
+                </div>
               </div>
             ) : (
-              <section className="closures-active-section" aria-label="Active and upcoming closures">
-                <div className="closures-section-heading-row">
-                  <h2 className="closures-section-title">Active and upcoming</h2>
-                  <span className="closures-section-count">
-                    {closures.length} {closures.length === 1 ? 'closure' : 'closures'}
-                  </span>
-                </div>
+              <div className="closures-sections-container">
+                {/* Section: Happening now */}
+                {happeningNowList.length > 0 && (
+                  <section
+                    className="closures-group-section"
+                    aria-label="Closures happening now"
+                  >
+                    <div className="closures-section-heading-row">
+                      <div className="section-title-wrap">
+                        <span className="section-dot-pulsing" aria-hidden="true" />
+                        <h2 className="closures-section-title">Happening now</h2>
+                      </div>
+                      <span className="closures-section-count">
+                        {happeningNowList.length}{' '}
+                        {happeningNowList.length === 1 ? 'closure' : 'closures'}
+                      </span>
+                    </div>
 
-                <div className="closures-cards-list">
-                  {closures.map((cl) => (
-                    <ClosureCard
-                      key={cl.id}
-                      closure={cl}
-                      defaultExpanded={autoExpandId === cl.id}
-                      onRemoved={handleRemoveSuccess}
-                    />
-                  ))}
-                </div>
-              </section>
+                    <div className="closures-cards-list">
+                      {happeningNowList.map((cl) => (
+                        <div
+                          key={cl.id}
+                          ref={(el) => {
+                            closureCardRefs.current[cl.id] = el
+                          }}
+                        >
+                          <ClosureCard
+                            closure={cl}
+                            defaultExpanded={autoExpandId === cl.id}
+                            isHighlighted={highlightedId === cl.id}
+                            onRemoved={handleRemoveSuccess}
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  </section>
+                )}
+
+                {/* Section: Coming up */}
+                {comingUpList.length > 0 && (
+                  <section
+                    className="closures-group-section"
+                    aria-label="Coming up closures"
+                  >
+                    <div className="closures-section-heading-row">
+                      <h2 className="closures-section-title">Coming up</h2>
+                      <span className="closures-section-count">
+                        {comingUpList.length}{' '}
+                        {comingUpList.length === 1 ? 'closure' : 'closures'}
+                      </span>
+                    </div>
+
+                    <div className="closures-cards-list">
+                      {comingUpList.map((cl) => (
+                        <div
+                          key={cl.id}
+                          ref={(el) => {
+                            closureCardRefs.current[cl.id] = el
+                          }}
+                        >
+                          <ClosureCard
+                            closure={cl}
+                            defaultExpanded={autoExpandId === cl.id}
+                            isHighlighted={highlightedId === cl.id}
+                            onRemoved={handleRemoveSuccess}
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  </section>
+                )}
+              </div>
             )}
 
-            {/* d) Section "Past closures" (collapsible) */}
+            {/* 5. Past Closures Collapsible */}
             <section className="past-closures-section" aria-label="Past closures">
               <button
                 type="button"
@@ -374,11 +574,17 @@ export default function Closures() {
         )}
       </main>
 
-      {/* Add Closure Dialog Modal */}
+      {/* Add Closure Dialog Modal (Portaled) */}
       {showAddDialog && (
         <AddClosureDialog
           isOpen={showAddDialog}
-          onClose={() => setShowAddDialog(false)}
+          initialDate={dialogInitialDate}
+          initialType={dialogInitialType}
+          onClose={() => {
+            setShowAddDialog(false)
+            setDialogInitialDate(null)
+            setDialogInitialType(null)
+          }}
           onSuccess={handleCreateSuccess}
         />
       )}

@@ -10,6 +10,11 @@ import {
   formatISTDateLabel,
 } from '../lib/helpers'
 
+/**
+ * Shared closure notice banner shown on:
+ * - Home dashboard (isHome=true)
+ * - Today's Bookings and Appointments Day view (compact=true)
+ */
 export default function ClosureNotice({ dateStr, isHome = false, compact = false }) {
   const [closures, setClosures] = useState([])
   const [unhandledCount, setUnhandledCount] = useState(0)
@@ -98,14 +103,16 @@ export default function ClosureNotice({ dateStr, isHome = false, compact = false
   const isFullDay = windowText === 'Full day'
   const reasonText = formatClosureReason(primary.reason)
 
-  // Construct label text
-  const headingText = isToday
+  // Construct friendly heading
+  const homeHeading = isToday
     ? isFullDay
-      ? `Clinic closed today: ${reasonText}`
-      : `Closed today ${windowText}: ${reasonText}`
+      ? `The clinic is closed today: ${reasonText}`
+      : `Closed today (${windowText}): ${reasonText}`
     : isFullDay
-      ? `Clinic closed on ${formatISTDateLabel(dateStr)}: ${reasonText}`
+      ? `The clinic is closed on ${formatISTDateLabel(dateStr)}: ${reasonText}`
       : `Closed ${formatISTDateLabel(dateStr)} (${windowText}): ${reasonText}`
+
+  const compactHeading = `Closed: ${reasonText}, ${windowText}`
 
   // Home Screen layout
   if (isHome) {
@@ -117,10 +124,10 @@ export default function ClosureNotice({ dateStr, isHome = false, compact = false
         <div className="closure-notice-content">
           <div className="closure-notice-title-row">
             <span className="closure-notice-badge">CLINIC CLOSURE</span>
-            <strong className="closure-notice-title">{headingText}</strong>
+            <strong className="closure-notice-title">{homeHeading}</strong>
           </div>
           {primary.note && (
-            <p className="closure-notice-note">{primary.note}</p>
+            <p className="closure-notice-note">“{primary.note}”</p>
           )}
         </div>
         <div className="closure-notice-actions">
@@ -128,7 +135,7 @@ export default function ClosureNotice({ dateStr, isHome = false, compact = false
             <Link to="/closures" className="closure-unhandled-badge-link">
               <AlertTriangle size={15} aria-hidden="true" />
               <span>
-                {unhandledCount} {unhandledCount === 1 ? 'booking still needs' : 'bookings still need'} handling
+                {unhandledCount} {unhandledCount === 1 ? 'booking still needs' : 'bookings still need'} to be moved or cancelled
               </span>
             </Link>
           ) : (
@@ -151,13 +158,13 @@ export default function ClosureNotice({ dateStr, isHome = false, compact = false
       <div className="closure-compact-content">
         <CalendarOff size={18} className="closure-compact-icon" aria-hidden="true" />
         <span className="closure-compact-text">
-          <strong>{headingText}</strong>
+          <strong>{compactHeading}</strong>
         </span>
         {unhandledCount > 0 && (
           <Link to="/closures" className="closure-compact-unhandled-chip">
             <AlertTriangle size={14} aria-hidden="true" />
             <span>
-              {unhandledCount} to handle
+              {unhandledCount} {unhandledCount === 1 ? 'booking needs handling' : 'bookings need handling'}
             </span>
           </Link>
         )}

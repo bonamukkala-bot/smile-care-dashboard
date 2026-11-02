@@ -9,6 +9,10 @@ import {
   formatISTDateLabel,
 } from '../lib/helpers'
 
+/**
+ * List of bookings falling inside a closure window.
+ * Shows patient name, time, phone call button, and link to open appointment.
+ */
 export default function AffectedBookingsList({ bookings = [], loading = false }) {
   if (loading) {
     return (
@@ -29,72 +33,79 @@ export default function AffectedBookingsList({ bookings = [], loading = false })
   }
 
   return (
-    <div className="affected-bookings-table" role="region" aria-label="Bookings requiring attention">
-      <div className="affected-bookings-header">
-        <span className="affected-col-patient">Patient</span>
-        <span className="affected-col-time">Date &amp; Time (IST)</span>
-        <span className="affected-col-status">Status</span>
-        <span className="affected-col-actions">Actions</span>
-      </div>
-      <div className="affected-bookings-body">
-        {bookings.map((booking) => {
-          const dateKey = getISTDateKey(booking.slot_start)
-          const dateLabel = formatISTDateLabel(dateKey)
-          const slotRange = formatSlotRange(booking.slot_start)
-          const statusColor = getAppointmentStatusColor(booking.status)
-          const statusLabel = formatAppointmentStatus(booking.status)
-          const rawPhone = booking.patient_phone ? String(booking.patient_phone).trim() : ''
-          const maskedPhoneStr = maskPhone(booking.patient_phone)
+    <div className="affected-bookings-section" role="region" aria-label="Bookings requiring attention">
+      <p className="affected-bookings-intro-msg">
+        Call each patient, then move or cancel the booking.
+      </p>
 
-          return (
-            <div key={booking.id} className="affected-booking-row">
-              {/* Patient info with Telugu script support */}
-              <div className="affected-cell-patient">
-                <strong className="affected-patient-name">{booking.patient_name || 'Patient'}</strong>
-                {rawPhone && (
-                  <div className="affected-phone-row">
+      <div className="affected-bookings-table">
+        <div className="affected-bookings-header">
+          <span className="affected-col-time">Time &amp; Date (IST)</span>
+          <span className="affected-col-patient">Patient</span>
+          <span className="affected-col-status">Status</span>
+          <span className="affected-col-actions">Actions</span>
+        </div>
+
+        <div className="affected-bookings-body">
+          {bookings.map((booking) => {
+            const dateKey = getISTDateKey(booking.slot_start)
+            const dateLabel = formatISTDateLabel(dateKey)
+            const slotRange = formatSlotRange(booking.slot_start)
+            const statusColor = getAppointmentStatusColor(booking.status)
+            const statusLabel = formatAppointmentStatus(booking.status)
+            const rawPhone = booking.patient_phone ? String(booking.patient_phone).trim() : ''
+            const maskedPhoneStr = maskPhone(booking.patient_phone)
+
+            return (
+              <div key={booking.id} className="affected-booking-row">
+                {/* 1. Time first (large) */}
+                <div className="affected-cell-time">
+                  <strong className="affected-time-range">{slotRange}</strong>
+                  <span className="affected-date-text">{dateLabel}</span>
+                </div>
+
+                {/* 2. Patient name (Telugu script safe) + masked phone */}
+                <div className="affected-cell-patient">
+                  <span className="affected-patient-name">{booking.patient_name || 'Patient'}</span>
+                  {rawPhone && (
                     <span className="affected-phone-text">{maskedPhoneStr}</span>
+                  )}
+                </div>
+
+                {/* 3. Status badge */}
+                <div className="affected-cell-status">
+                  <span className={`status-badge status-badge-${statusColor}`}>
+                    {statusLabel}
+                  </span>
+                </div>
+
+                {/* 4. Action buttons: 48px call button + Open link */}
+                <div className="affected-cell-actions">
+                  {rawPhone && (
                     <a
                       href={`tel:${rawPhone}`}
-                      className="affected-call-btn"
+                      className="btn btn-secondary affected-call-btn"
                       aria-label={`Call ${booking.patient_name || 'patient'} at ${maskedPhoneStr}`}
                     >
-                      <Phone size={13} aria-hidden="true" />
+                      <Phone size={15} aria-hidden="true" />
                       <span>Call</span>
                     </a>
-                  </div>
-                )}
-              </div>
+                  )}
 
-              {/* Slot time */}
-              <div className="affected-cell-time">
-                <span className="affected-date-text">{dateLabel}</span>
-                <span className="affected-time-range">{slotRange}</span>
+                  <Link
+                    to={`/appointments/${booking.id}`}
+                    className="btn btn-secondary affected-open-btn"
+                    aria-label={`Open booking for ${booking.patient_name || 'patient'}`}
+                  >
+                    <span>Open booking</span>
+                    <ExternalLink size={14} aria-hidden="true" />
+                  </Link>
+                </div>
               </div>
-
-              {/* Status badge */}
-              <div className="affected-cell-status">
-                <span className={`status-badge status-badge-${statusColor}`}>
-                  {statusLabel}
-                </span>
-              </div>
-
-              {/* Action */}
-              <div className="affected-cell-actions">
-                <Link
-                  to={`/appointments/${booking.id}`}
-                  className="btn btn-secondary btn-sm affected-open-btn"
-                  aria-label={`Open booking for ${booking.patient_name || 'patient'}`}
-                >
-                  <span>Open booking</span>
-                  <ExternalLink size={14} aria-hidden="true" />
-                </Link>
-              </div>
-            </div>
-          )
-        })}
+            )
+          })}
+        </div>
       </div>
     </div>
   )
 }
-

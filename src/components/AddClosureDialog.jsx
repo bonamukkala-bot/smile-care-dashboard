@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
+import { createPortal } from 'react-dom'
 import {
   X,
   Clock,
@@ -10,6 +11,8 @@ import {
   Loader2,
   ArrowLeft,
   CheckCircle2,
+  Calendar,
+  Layers,
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import {
@@ -58,82 +61,135 @@ const TIME_OPTIONS = [
   '20:30',
 ]
 
-export default function AddClosureDialog({ isOpen, onClose, onSuccess }) {
-  const todayIST = getTodayIST()
-  const showQuickChip = useMemo(() => canCloseRestOfToday(), [])
+/**
+ * Format date in full words like "Friday, 6 November 2026"
+ */
+function formatLongDateIST(dateStr) {
+  if (!dateStr) return '-'
+  try {
+    const d = new Date(`${dateStr}T12:00:00+05:30`)
+    return new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'Asia/Kolkata',
+      weekday: 'long',
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric',
+    }).format(d)
+  } catch {
+    return dateStr
+  }
+}
+
+export default function AddClosureDialog({
+  isOpen,
+  onClose,
+  onSuccess,
+  initialDate = null,
+  initialType = null,
+}) {
+  const todayIST = useMemo(() => getTodayIST(), [])
+  const showRestOfToday = useMemo(() => canCloseRestOfToday(), [])
   const nextHalfHour = useMemo(() => getNextHalfHourIST(), [])
   const nextHalfHour12 = useMemo(() => formatTime24To12(nextHalfHour), [nextHalfHour])
 
-  // Form states
-  const [reason, setReason] = useState('doctor_leave')
-  const [durationMode, setDurationMode] = useState('full_days') // 'full_days' | 'specific_hours'
+  // Determine starting step and type based on props
+  const [step, setStep] = useState(() => {
+    if (initialType === 'rest_of_today' || initialDate) return 2
+    return 1
+  })
 
-  // Full day(s) inputs
-  const [dateFrom, setDateFrom] = useState(todayIST)
-  const [dateTo, setDateTo] = useState(todayIST)
+  // Closure type: 'rest_of_today' | 'whole_day' | 'several_days' | 'few_hours'
+  const [closureType, setClosureType] = useState(() => {
+    if (initialType === 'rest_of_today') return 'rest_of_today'
+    if (initialDate) return 'whole_day'
+    return 'whole_day'
+  })
 
-  // Specific hours inputs
-  const [specificDate, setSpecificDate] = useState(todayIST)
-  const [startTime, setStartTime] = useState(
-    specificDate === todayIST && nextHalfHour < '20:30' ? nextHalfHour : '10:00'
-  )
-  const [endTime, setEndTime] = useState('20:30')
+  // Reason: default to 'emergency' for rest_of_today, 'doctor_leave' for others
+  const [reason, setReason] = useState(() => {
+    return initialType === 'rest_of_today' ? 'emergency' : 'doctor_leave'
+  })
+
+  // Date states
+  const [wholeDate, setWholeDate] = useState(() => initialDate || todayIST)
+  const [dateFrom, setDateFrom] = useState(() => initialDate || todayIST)
+  const [dateTo, setDateTo] = useState(() => initialDate || todayIST)
+  const [fewHoursDate, setFewHoursDate] = useState(() => initialDate || todayIST)
+
+  // Session preset for "A few hours": 'morning' | 'evening' | 'custom'
+  const [sessionPreset, setSessionPreset] = useState('morning')
+  const [customStartTime, setCustomStartTime] = useState('10:00')
+  const [customEndTime, setCustomEndTime] = useState('13:30')
 
   // Note
+  const [showNoteInput, setShowNoteInput] = useState(false)
   const [note, setNote] = useState('')
 
-  // Dialog step & submission state
-  const [step, setStep] = useState('form') // 'form' | 'review'
+  // Submission & review states
   const [dialogError, setDialogError] = useState(null)
   const [isSaving, setIsSaving] = useState(false)
-
-  // Review step lookup state
   const [checkingBookings, setCheckingBookings] = useState(false)
   const [previewBookings, setPreviewBookings] = useState([])
 
   const dialogRef = useRef(null)
-  const firstFocusableRef = useRef(null)
-
-  // Quick chip handler
-  const handleQuickChipClick = () => {
-    setDateFrom(todayIST)
-    setDateTo(todayIST)
-    setDurationMode('full_days')
-    setReason('emergency')
-    setDialogError(null)
-  }
 
   // Calculate max dateTo (31 days after dateFrom)
   const maxDateTo = useMemo(() => {
     return addDaysToISTDate(dateFrom, 31)
   }, [dateFrom])
 
-  // Filter "From" options for today in IST
+  // Count non-Sundays for several days
+  const nonSundayCount = useMemo(() => {
+    if (!dateFrom || !dateTo || dateTo < dateFrom) return 0
+    let count = 0
+    let cur = dateFrom
+    while (cur <= dateTo) {
+      if (!isSundayIST(cur)) count++
+      cur = addDaysToISTDate(cur, 1)
+    }
+    return count
+  }, [dateFrom, dateTo])
+
+  // Effective times for "A few hours"
   const availableFromTimes = useMemo(() => {
-    if (specificDate === todayIST) {
+    if (fewHoursDate === todayIST) {
       return TIME_OPTIONS.filter((t) => t >= nextHalfHour && t < '20:30')
     }
     return TIME_OPTIONS.filter((t) => t < '20:30')
-  }, [specificDate, todayIST, nextHalfHour])
+  }, [fewHoursDate, todayIST, nextHalfHour])
 
   const effectiveStartTime = useMemo(() => {
+    if (sessionPreset === 'morning') return '10:00'
+    if (sessionPreset === 'evening') return '17:00'
     if (availableFromTimes.length === 0) return '10:00'
-    return availableFromTimes.includes(startTime) ? startTime : availableFromTimes[0]
-  }, [availableFromTimes, startTime])
+    return availableFromTimes.includes(customStartTime)
+      ? customStartTime
+      : availableFromTimes[0]
+  }, [sessionPreset, availableFromTimes, customStartTime])
 
-  // Filter "Until" options strictly greater than startTime
   const availableUntilTimes = useMemo(() => {
     return TIME_OPTIONS.filter((t) => t > effectiveStartTime)
   }, [effectiveStartTime])
 
   const effectiveEndTime = useMemo(() => {
+    if (sessionPreset === 'morning') return '13:30'
+    if (sessionPreset === 'evening') return '20:30'
     if (availableUntilTimes.length === 0) return '20:30'
-    return availableUntilTimes.includes(endTime)
-      ? endTime
+    return availableUntilTimes.includes(customEndTime)
+      ? customEndTime
       : availableUntilTimes[availableUntilTimes.length - 1]
-  }, [availableUntilTimes, endTime])
+  }, [sessionPreset, availableUntilTimes, customEndTime])
 
-  // Lock body scroll and trap focus / Escape key
+  // Presets disabled state if time has passed today
+  const isMorningPassedToday = useMemo(() => {
+    return fewHoursDate === todayIST && nextHalfHour > '13:00'
+  }, [fewHoursDate, todayIST, nextHalfHour])
+
+  const isEveningPassedToday = useMemo(() => {
+    return fewHoursDate === todayIST && nextHalfHour > '20:00'
+  }, [fewHoursDate, todayIST, nextHalfHour])
+
+  // Body scroll lock and focus trap / Escape key
   useEffect(() => {
     if (!isOpen) return
 
@@ -172,7 +228,80 @@ export default function AddClosureDialog({ isOpen, onClose, onSuccess }) {
 
   if (!isOpen) return null
 
-  // Arrow key navigation for reason radio chips
+  // Step 2 validation check
+  const step2Validation = () => {
+    if (closureType === 'rest_of_today') {
+      return { valid: true, error: null }
+    }
+    if (closureType === 'whole_day') {
+      if (!wholeDate) {
+        return { valid: false, error: 'Please choose a date.' }
+      }
+      if (isSundayIST(wholeDate)) {
+        return {
+          valid: false,
+          error: 'The clinic is already closed on Sundays. Please pick another day.',
+        }
+      }
+      return { valid: true, error: null }
+    }
+    if (closureType === 'several_days') {
+      if (!dateFrom || !dateTo) {
+        return { valid: false, error: 'Please select both start and end dates.' }
+      }
+      if (dateTo < dateFrom) {
+        return { valid: false, error: '"To" date cannot be earlier than "From" date.' }
+      }
+      if (nonSundayCount === 0) {
+        return { valid: false, error: 'There is nothing to close on those dates.' }
+      }
+      return { valid: true, error: null }
+    }
+    if (closureType === 'few_hours') {
+      if (!fewHoursDate) {
+        return { valid: false, error: 'Please choose a date.' }
+      }
+      if (isSundayIST(fewHoursDate)) {
+        return { valid: false, error: 'The clinic is closed on Sundays.' }
+      }
+      if (sessionPreset === 'morning' && isMorningPassedToday) {
+        return {
+          valid: false,
+          error: 'Morning hours have already passed for today. Pick evening or custom times.',
+        }
+      }
+      if (sessionPreset === 'evening' && isEveningPassedToday) {
+        return { valid: false, error: 'Evening hours have already passed for today.' }
+      }
+      if (!effectiveStartTime || !effectiveEndTime || effectiveEndTime <= effectiveStartTime) {
+        return { valid: false, error: '"Until" time must be after "From" time.' }
+      }
+      return { valid: true, error: null }
+    }
+    return { valid: true, error: null }
+  }
+
+  const { valid: isStep2Valid, error: step2Error } = step2Validation()
+
+  // Transition from Step 1 to Step 2
+  const handleSelectTile = (type) => {
+    setClosureType(type)
+    if (type === 'rest_of_today') {
+      setReason('emergency')
+    }
+    setDialogError(null)
+    setStep(2)
+  }
+
+  // Arrow key navigation for Step 1 tiles
+  const handleTileKeyDown = (e, type) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault()
+      handleSelectTile(type)
+    }
+  }
+
+  // Arrow key navigation for Reason chips
   const handleReasonKeyDown = (e, index) => {
     if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
       e.preventDefault()
@@ -185,46 +314,39 @@ export default function AddClosureDialog({ isOpen, onClose, onSuccess }) {
     }
   }
 
-  // Handle Proceed to Review step
-  const handleReview = async () => {
-    setDialogError(null)
-
-    // Validation
-    if (durationMode === 'specific_hours') {
-      if (isSundayIST(specificDate)) {
-        setDialogError('The clinic is closed on Sundays')
-        return
-      }
-      if (!effectiveStartTime || !effectiveEndTime || effectiveEndTime <= effectiveStartTime) {
-        setDialogError('"Until" time must be after "From" time.')
-        return
-      }
-    } else {
-      if (dateTo < dateFrom) {
-        setDialogError('"Last day" cannot be earlier than "First day".')
-        return
-      }
+  // Advance to Step 3: Run booking impact lookup
+  const handleGoToReview = async () => {
+    const val = step2Validation()
+    if (!val.valid) {
+      setDialogError(val.error)
+      return
     }
 
-    setStep('review')
+    setDialogError(null)
+    setStep(3)
     setCheckingBookings(true)
 
-    // Run informational booking lookup
     try {
       let startISO = ''
       let endISO = ''
 
-      if (durationMode === 'specific_hours') {
-        startISO = `${specificDate}T${effectiveStartTime}:00+05:30`
-        endISO = `${specificDate}T${effectiveEndTime}:00+05:30`
-      } else {
-        // Date range: from first day 10:00 AM (or next half hour if today) to last day 20:30
+      if (closureType === 'rest_of_today') {
+        const fromStart = nextHalfHour > '10:00' ? nextHalfHour : '10:00'
+        startISO = `${todayIST}T${fromStart}:00+05:30`
+        endISO = `${todayIST}T20:30:00+05:30`
+      } else if (closureType === 'whole_day') {
         const fromStart =
-          dateFrom === todayIST && nextHalfHour > '10:00'
-            ? nextHalfHour
-            : '10:00'
+          wholeDate === todayIST && nextHalfHour > '10:00' ? nextHalfHour : '10:00'
+        startISO = `${wholeDate}T${fromStart}:00+05:30`
+        endISO = `${wholeDate}T20:30:00+05:30`
+      } else if (closureType === 'several_days') {
+        const fromStart =
+          dateFrom === todayIST && nextHalfHour > '10:00' ? nextHalfHour : '10:00'
         startISO = `${dateFrom}T${fromStart}:00+05:30`
         endISO = `${dateTo}T20:30:00+05:30`
+      } else if (closureType === 'few_hours') {
+        startISO = `${fewHoursDate}T${effectiveStartTime}:00+05:30`
+        endISO = `${fewHoursDate}T${effectiveEndTime}:00+05:30`
       }
 
       const { data, error } = await supabase
@@ -237,20 +359,20 @@ export default function AddClosureDialog({ isOpen, onClose, onSuccess }) {
         .order('slot_start', { ascending: true })
 
       if (error) {
-        console.error('Error in review booking lookup:', error.message)
+        console.error('Impact lookup error:', error.message)
         setPreviewBookings([])
       } else {
         setPreviewBookings(data || [])
       }
     } catch (err) {
-      console.error('Lookup exception:', err)
+      console.error('Impact lookup exception:', err)
       setPreviewBookings([])
     } finally {
       setCheckingBookings(false)
     }
   }
 
-  // Handle final "Block this time" execution
+  // Execute Create Closure: strictly send start_time and end_time ONLY for "A few hours"
   const handleExecuteCreate = async () => {
     if (isSaving) return
     setIsSaving(true)
@@ -262,14 +384,23 @@ export default function AddClosureDialog({ isOpen, onClose, onSuccess }) {
       note: note.trim() || undefined,
     }
 
-    if (durationMode === 'specific_hours') {
-      payload.date_from = specificDate
-      payload.date_to = specificDate
-      payload.start_time = effectiveStartTime
-      payload.end_time = effectiveEndTime
-    } else {
+    if (closureType === 'rest_of_today') {
+      payload.date_from = todayIST
+      payload.date_to = todayIST
+      // ABSOLUTELY NO start_time or end_time (Edge function clamps to next half hour)
+    } else if (closureType === 'whole_day') {
+      payload.date_from = wholeDate
+      payload.date_to = wholeDate
+      // ABSOLUTELY NO start_time or end_time
+    } else if (closureType === 'several_days') {
       payload.date_from = dateFrom
       payload.date_to = dateTo
+      // ABSOLUTELY NO start_time or end_time
+    } else if (closureType === 'few_hours') {
+      payload.date_from = fewHoursDate
+      payload.date_to = fewHoursDate
+      payload.start_time = effectiveStartTime
+      payload.end_time = effectiveEndTime
     }
 
     try {
@@ -281,7 +412,6 @@ export default function AddClosureDialog({ isOpen, onClose, onSuccess }) {
         return
       }
 
-      // Success
       onSuccess?.(res.data)
       onClose()
     } catch (err) {
@@ -290,24 +420,29 @@ export default function AddClosureDialog({ isOpen, onClose, onSuccess }) {
     }
   }
 
-  // Summary labels for Review step
+  // Summary labels for Step 3
   const reasonLabel = formatClosureReason(reason)
 
-  const dateSummary =
-    durationMode === 'specific_hours'
-      ? formatISTDateLabel(specificDate)
-      : dateFrom === dateTo
-        ? formatISTDateLabel(dateFrom)
-        : `${formatISTDateLabel(dateFrom)} to ${formatISTDateLabel(dateTo)}`
+  let summaryWhat = ''
+  if (closureType === 'rest_of_today') {
+    summaryWhat = `Today, from ${nextHalfHour12} until 8:30 PM`
+  } else if (closureType === 'whole_day') {
+    summaryWhat = `${formatLongDateIST(wholeDate)}, whole day (10:00 AM to 8:30 PM)`
+  } else if (closureType === 'several_days') {
+    summaryWhat = `${nonSundayCount} days: ${formatISTDateLabel(dateFrom)} to ${formatISTDateLabel(
+      dateTo
+    )} (Sundays skipped)`
+  } else if (closureType === 'few_hours') {
+    summaryWhat = `${formatLongDateIST(fewHoursDate)}, ${formatTime24To12(
+      effectiveStartTime
+    )} to ${formatTime24To12(effectiveEndTime)}`
+  }
 
-  const windowSummary =
-    durationMode === 'specific_hours'
-      ? `${formatTime24To12(effectiveStartTime)} to ${formatTime24To12(effectiveEndTime)}`
-      : 'Full day(s)'
+  const tomorrowIST = addDaysToISTDate(todayIST, 1)
 
-  return (
+  return createPortal(
     <div
-      className="modal-sheet-backdrop"
+      className="modal-portal-overlay"
       role="presentation"
       onClick={(e) => {
         if (e.target === e.currentTarget && !isSaving) {
@@ -317,44 +452,50 @@ export default function AddClosureDialog({ isOpen, onClose, onSuccess }) {
     >
       <div
         ref={dialogRef}
-        className="modal-sheet-panel add-closure-dialog-panel"
+        className="add-closure-dialog-panel"
         role="dialog"
         aria-modal="true"
-        aria-labelledby="add-closure-title"
+        aria-labelledby="closure-dialog-heading"
       >
-        {/* Header */}
+        {/* Step Progress Bar */}
+        <div
+          className="closure-step-progressbar"
+          role="progressbar"
+          aria-valuenow={step}
+          aria-valuemin={1}
+          aria-valuemax={3}
+          aria-label={`Step ${step} of 3`}
+        >
+          <div
+            className="closure-step-progress-fill"
+            style={{ width: step === 1 ? '33.3%' : step === 2 ? '66.6%' : '100%' }}
+          />
+        </div>
+
+        {/* Dialog Header */}
         <header className="modal-sheet-header">
-          <div className="sheet-header-title-wrap">
-            {step === 'review' && (
-              <button
-                type="button"
-                onClick={() => {
-                  setStep('form')
-                  setDialogError(null)
-                }}
-                disabled={isSaving}
-                className="btn-dialog-back"
-                aria-label="Back to edit closure details"
-              >
-                <ArrowLeft size={18} aria-hidden="true" />
-              </button>
-            )}
-            <h2 id="add-closure-title" className="modal-sheet-title">
-              {step === 'review' ? 'Review & Confirm Closure' : 'Add closure'}
+          <div className="sheet-header-title-group">
+            <div className="closure-dialog-header-top">
+              <span className="closure-step-counter">Step {step} of 3</span>
+            </div>
+            <h2 id="closure-dialog-heading" className="modal-sheet-title">
+              {step === 1 && 'What do you want to close?'}
+              {step === 2 && 'Closure details'}
+              {step === 3 && 'Check and confirm'}
             </h2>
           </div>
           <button
             type="button"
             onClick={onClose}
             disabled={isSaving}
-            className="modal-sheet-close-btn"
+            className="btn-sheet-close"
             aria-label="Close dialog"
           >
             <X size={20} />
           </button>
         </header>
 
-        {/* Global Error Banner */}
+        {/* Inline Error Alert */}
         {dialogError && (
           <div className="modal-alert-error" role="alert">
             <AlertTriangle size={18} className="alert-error-icon" aria-hidden="true" />
@@ -362,36 +503,451 @@ export default function AddClosureDialog({ isOpen, onClose, onSuccess }) {
           </div>
         )}
 
-        {step === 'form' ? (
-          /* STEP 1: INPUT FORM */
+        {/* ==================================================================
+            STEP 1: What do you want to close? (Big Selectable Tiles)
+            ================================================================== */}
+        {step === 1 && (
           <div className="modal-sheet-form">
             <div className="modal-scroll-area">
-              {/* Quick Chip: Close rest of today */}
-              {showQuickChip && (
-                <div className="quick-chip-banner">
+              <p className="closure-step-intro">
+                Choose what part of the calendar you need to block:
+              </p>
+
+              <div
+                className="closure-type-tiles-grid"
+                role="radiogroup"
+                aria-label="Closure duration options"
+              >
+                {/* Tile 1: Rest of today */}
+                {showRestOfToday && (
                   <button
                     type="button"
-                    onClick={handleQuickChipClick}
-                    className="btn-quick-chip"
+                    role="radio"
+                    aria-checked={closureType === 'rest_of_today'}
+                    tabIndex={0}
+                    onClick={() => handleSelectTile('rest_of_today')}
+                    onKeyDown={(e) => handleTileKeyDown(e, 'rest_of_today')}
+                    className={`closure-type-tile ${
+                      closureType === 'rest_of_today' ? 'tile-selected' : ''
+                    }`}
                   >
-                    <Clock size={16} aria-hidden="true" />
-                    <span>Close the rest of today</span>
+                    <div className="tile-icon-box box-accent">
+                      <Clock size={22} aria-hidden="true" />
+                    </div>
+                    <div className="tile-text-wrap">
+                      <strong className="tile-title">Rest of today</strong>
+                      <span className="tile-sub">
+                        From {nextHalfHour12} until 8:30 PM. For emergencies.
+                      </span>
+                    </div>
                   </button>
-                  <p className="quick-chip-hint">
-                    This blocks from {nextHalfHour12} until 8:30 PM today.
-                  </p>
+                )}
+
+                {/* Tile 2: A whole day */}
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked={closureType === 'whole_day'}
+                  tabIndex={0}
+                  onClick={() => handleSelectTile('whole_day')}
+                  onKeyDown={(e) => handleTileKeyDown(e, 'whole_day')}
+                  className={`closure-type-tile ${
+                    closureType === 'whole_day' ? 'tile-selected' : ''
+                  }`}
+                >
+                  <div className="tile-icon-box">
+                    <Calendar size={22} aria-hidden="true" />
+                  </div>
+                  <div className="tile-text-wrap">
+                    <strong className="tile-title">A whole day</strong>
+                    <span className="tile-sub">Pick a specific date</span>
+                  </div>
+                </button>
+
+                {/* Tile 3: Several days */}
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked={closureType === 'several_days'}
+                  tabIndex={0}
+                  onClick={() => handleSelectTile('several_days')}
+                  onKeyDown={(e) => handleTileKeyDown(e, 'several_days')}
+                  className={`closure-type-tile ${
+                    closureType === 'several_days' ? 'tile-selected' : ''
+                  }`}
+                >
+                  <div className="tile-icon-box">
+                    <Layers size={22} aria-hidden="true" />
+                  </div>
+                  <div className="tile-text-wrap">
+                    <strong className="tile-title">Several days</strong>
+                    <span className="tile-sub">For leave, holidays or trips</span>
+                  </div>
+                </button>
+
+                {/* Tile 4: A few hours */}
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked={closureType === 'few_hours'}
+                  tabIndex={0}
+                  onClick={() => handleSelectTile('few_hours')}
+                  onKeyDown={(e) => handleTileKeyDown(e, 'few_hours')}
+                  className={`closure-type-tile ${
+                    closureType === 'few_hours' ? 'tile-selected' : ''
+                  }`}
+                >
+                  <div className="tile-icon-box">
+                    <Clock size={22} aria-hidden="true" />
+                  </div>
+                  <div className="tile-text-wrap">
+                    <strong className="tile-title">A few hours</strong>
+                    <span className="tile-sub">For example the morning or the evening</span>
+                  </div>
+                </button>
+              </div>
+            </div>
+
+            {/* Sticky Footer */}
+            <footer className="modal-sheet-footer">
+              <button
+                type="button"
+                onClick={() => setStep(2)}
+                className="btn btn-primary btn-submit-sheet"
+              >
+                Next →
+              </button>
+              <button
+                type="button"
+                onClick={onClose}
+                className="btn btn-secondary btn-cancel-sheet"
+              >
+                Cancel
+              </button>
+            </footer>
+          </div>
+        )}
+
+        {/* ==================================================================
+            STEP 2: Details (Dates, Times, Reason, Note)
+            ================================================================== */}
+        {step === 2 && (
+          <div className="modal-sheet-form">
+            <div className="modal-scroll-area">
+              {/* Context Notice for Rest of Today */}
+              {closureType === 'rest_of_today' && (
+                <div className="closure-detail-banner banner-accent">
+                  <Clock size={20} className="banner-icon" aria-hidden="true" />
+                  <div className="banner-text">
+                    <strong>Closing the rest of today</strong>
+                    <p>
+                      The clinic will be blocked from <strong>{nextHalfHour12}</strong> until{' '}
+                      <strong>8:30 PM</strong> today.
+                    </p>
+                  </div>
                 </div>
               )}
 
-              {/* Reason: Radio Group Chips */}
+              {/* A Whole Day: Date chips + native date input */}
+              {closureType === 'whole_day' && (
+                <div className="form-group-modern">
+                  <label htmlFor="closure-whole-date" className="form-label-modern">
+                    Pick date <span className="required-star">*</span>
+                  </label>
+
+                  <div className="date-chip-presets">
+                    {showRestOfToday && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setWholeDate(todayIST)
+                          setDialogError(null)
+                        }}
+                        className={`chip-preset-btn ${
+                          wholeDate === todayIST ? 'chip-active' : ''
+                        }`}
+                      >
+                        Today
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setWholeDate(tomorrowIST)
+                        setDialogError(null)
+                      }}
+                      className={`chip-preset-btn ${
+                        wholeDate === tomorrowIST ? 'chip-active' : ''
+                      }`}
+                    >
+                      Tomorrow
+                    </button>
+                  </div>
+
+                  <input
+                    id="closure-whole-date"
+                    type="date"
+                    min={todayIST}
+                    value={wholeDate}
+                    onChange={(e) => {
+                      setWholeDate(e.target.value)
+                      setDialogError(null)
+                    }}
+                    className="form-input-modern date-input-modern"
+                    required
+                  />
+
+                  {/* Friendly words date display */}
+                  <div className="closure-friendly-date-line">
+                    <span>{formatLongDateIST(wholeDate)}</span>
+                  </div>
+
+                  {isSundayIST(wholeDate) && (
+                    <p className="form-field-warning" role="alert">
+                      ⚠️ The clinic is already closed on Sundays. Please pick another day.
+                    </p>
+                  )}
+                  {wholeDate === todayIST && !isSundayIST(wholeDate) && (
+                    <p className="form-field-helper">
+                      Only the remaining time today will be blocked.
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {/* Several Days: From & To inputs + non-Sunday counter */}
+              {closureType === 'several_days' && (
+                <div className="full-days-date-grid">
+                  <div className="several-days-inputs-row">
+                    <div className="form-group-modern">
+                      <label htmlFor="closure-date-from" className="form-label-modern">
+                        From date <span className="required-star">*</span>
+                      </label>
+                      <input
+                        id="closure-date-from"
+                        type="date"
+                        min={todayIST}
+                        value={dateFrom}
+                        onChange={(e) => {
+                          const val = e.target.value
+                          setDateFrom(val)
+                          if (dateTo < val) setDateTo(val)
+                          const maxTo = addDaysToISTDate(val, 31)
+                          if (dateTo > maxTo) setDateTo(maxTo)
+                          setDialogError(null)
+                        }}
+                        className="form-input-modern date-input-modern"
+                        required
+                      />
+                    </div>
+
+                    <div className="form-group-modern">
+                      <label htmlFor="closure-date-to" className="form-label-modern">
+                        To date <span className="required-star">*</span>
+                      </label>
+                      <input
+                        id="closure-date-to"
+                        type="date"
+                        min={dateFrom}
+                        max={maxDateTo}
+                        value={dateTo}
+                        onChange={(e) => {
+                          setDateTo(e.target.value)
+                          setDialogError(null)
+                        }}
+                        className="form-input-modern date-input-modern"
+                        required
+                      />
+                    </div>
+                  </div>
+
+                  {/* Live summary */}
+                  <div className="several-days-live-summary">
+                    {nonSundayCount > 0 ? (
+                      <p className="several-days-count-line">
+                        <strong>{nonSundayCount} days:</strong> {formatISTDateLabel(dateFrom)}{' '}
+                        to {formatISTDateLabel(dateTo)}. Sundays are skipped.
+                      </p>
+                    ) : (
+                      <p className="form-field-warning" role="alert">
+                        ⚠️ There is nothing to close on those dates.
+                      </p>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* A Few Hours: Date + Session Presets + Custom Times */}
+              {closureType === 'few_hours' && (
+                <div className="few-hours-config-block">
+                  <div className="form-group-modern">
+                    <label htmlFor="closure-hours-date" className="form-label-modern">
+                      Date <span className="required-star">*</span>
+                    </label>
+
+                    <div className="date-chip-presets">
+                      {showRestOfToday && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setFewHoursDate(todayIST)
+                            setDialogError(null)
+                          }}
+                          className={`chip-preset-btn ${
+                            fewHoursDate === todayIST ? 'chip-active' : ''
+                          }`}
+                        >
+                          Today
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setFewHoursDate(tomorrowIST)
+                          setDialogError(null)
+                        }}
+                        className={`chip-preset-btn ${
+                          fewHoursDate === tomorrowIST ? 'chip-active' : ''
+                        }`}
+                      >
+                        Tomorrow
+                      </button>
+                    </div>
+
+                    <input
+                      id="closure-hours-date"
+                      type="date"
+                      min={todayIST}
+                      value={fewHoursDate}
+                      onChange={(e) => {
+                        setFewHoursDate(e.target.value)
+                        setDialogError(null)
+                      }}
+                      className="form-input-modern date-input-modern"
+                      required
+                    />
+
+                    {isSundayIST(fewHoursDate) && (
+                      <p className="form-field-warning" role="alert">
+                        ⚠️ The clinic is closed on Sundays.
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Session Presets */}
+                  <div className="form-group-modern">
+                    <label className="form-label-modern">Session preset</label>
+                    <div className="session-preset-chips" role="radiogroup">
+                      <button
+                        type="button"
+                        role="radio"
+                        aria-checked={sessionPreset === 'morning'}
+                        disabled={isMorningPassedToday}
+                        onClick={() => {
+                          setSessionPreset('morning')
+                          setDialogError(null)
+                        }}
+                        className={`session-preset-btn ${
+                          sessionPreset === 'morning' ? 'preset-active' : ''
+                        }`}
+                      >
+                        <Clock size={15} aria-hidden="true" />
+                        <span>Morning (10:00 AM to 1:30 PM)</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        role="radio"
+                        aria-checked={sessionPreset === 'evening'}
+                        disabled={isEveningPassedToday}
+                        onClick={() => {
+                          setSessionPreset('evening')
+                          setDialogError(null)
+                        }}
+                        className={`session-preset-btn ${
+                          sessionPreset === 'evening' ? 'preset-active' : ''
+                        }`}
+                      >
+                        <Clock size={15} aria-hidden="true" />
+                        <span>Evening (5:00 PM to 8:30 PM)</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        role="radio"
+                        aria-checked={sessionPreset === 'custom'}
+                        onClick={() => {
+                          setSessionPreset('custom')
+                          setDialogError(null)
+                        }}
+                        className={`session-preset-btn ${
+                          sessionPreset === 'custom' ? 'preset-active' : ''
+                        }`}
+                      >
+                        <Clock size={15} aria-hidden="true" />
+                        <span>Custom times</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Custom times row */}
+                  {sessionPreset === 'custom' && (
+                    <div className="specific-hours-row">
+                      <div className="form-group-modern">
+                        <label htmlFor="custom-time-from" className="form-label-modern">
+                          From <span className="required-star">*</span>
+                        </label>
+                        <select
+                          id="custom-time-from"
+                          value={effectiveStartTime}
+                          onChange={(e) => {
+                            setCustomStartTime(e.target.value)
+                            setDialogError(null)
+                          }}
+                          className="form-input-modern form-select-modern"
+                        >
+                          {availableFromTimes.map((t) => (
+                            <option key={t} value={t}>
+                              {formatTime24To12(t)}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div className="form-group-modern">
+                        <label htmlFor="custom-time-until" className="form-label-modern">
+                          Until <span className="required-star">*</span>
+                        </label>
+                        <select
+                          id="custom-time-until"
+                          value={effectiveEndTime}
+                          onChange={(e) => {
+                            setCustomEndTime(e.target.value)
+                            setDialogError(null)
+                          }}
+                          className="form-input-modern form-select-modern"
+                        >
+                          {availableUntilTimes.map((t) => (
+                            <option key={t} value={t}>
+                              {formatTime24To12(t)}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Reason: Radio chips with icons */}
               <div className="form-group-modern">
-                <label id="reason-group-label" className="form-label-modern">
+                <label id="closure-reason-label" className="form-label-modern">
                   Reason <span className="required-star">*</span>
                 </label>
                 <div
                   className="closure-reason-chips"
                   role="radiogroup"
-                  aria-labelledby="reason-group-label"
+                  aria-labelledby="closure-reason-label"
                 >
                   {REASONS.map((r, idx) => {
                     const isSelected = reason === r.id
@@ -403,9 +959,8 @@ export default function AddClosureDialog({ isOpen, onClose, onSuccess }) {
                         onKeyDown={(e) => handleReasonKeyDown(e, idx)}
                       >
                         <input
-                          ref={idx === 0 ? firstFocusableRef : undefined}
                           type="radio"
-                          name="closure-reason"
+                          name="closure-reason-step2"
                           value={r.id}
                           checked={isSelected}
                           onChange={() => setReason(r.id)}
@@ -419,232 +974,144 @@ export default function AddClosureDialog({ isOpen, onClose, onSuccess }) {
                 </div>
               </div>
 
-              {/* Duration: Segmented Control */}
+              {/* Note (optional): revealed by quiet button */}
               <div className="form-group-modern">
-                <label className="form-label-modern">Duration</label>
-                <div className="segmented-control" role="tablist" aria-label="Duration mode">
+                {!showNoteInput && note.trim().length === 0 ? (
                   <button
                     type="button"
-                    role="tab"
-                    aria-selected={durationMode === 'full_days'}
-                    onClick={() => {
-                      setDurationMode('full_days')
-                      setDialogError(null)
-                    }}
-                    className={`segmented-btn ${durationMode === 'full_days' ? 'active' : ''}`}
+                    onClick={() => setShowNoteInput(true)}
+                    className="btn-add-note-toggle"
                   >
-                    Full day(s)
+                    + Add a note (optional)
                   </button>
-                  <button
-                    type="button"
-                    role="tab"
-                    aria-selected={durationMode === 'specific_hours'}
-                    onClick={() => {
-                      setDurationMode('specific_hours')
-                      setDialogError(null)
-                    }}
-                    className={`segmented-btn ${durationMode === 'specific_hours' ? 'active' : ''}`}
-                  >
-                    Specific hours
-                  </button>
-                </div>
-              </div>
-
-              {/* Duration Mode: Full day(s) */}
-              {durationMode === 'full_days' && (
-                <div className="full-days-date-grid">
-                  <div className="form-group-modern">
-                    <label htmlFor="closure-date-from" className="form-label-modern">
-                      First day <span className="required-star">*</span>
-                    </label>
-                    <input
-                      id="closure-date-from"
-                      type="date"
-                      min={todayIST}
-                      value={dateFrom}
-                      onChange={(e) => {
-                        const val = e.target.value
-                        setDateFrom(val)
-                        if (dateTo < val) setDateTo(val)
-                        const maxTo = addDaysToISTDate(val, 31)
-                        if (dateTo > maxTo) setDateTo(maxTo)
-                      }}
-                      className="form-input-modern date-input-modern"
-                      required
-                    />
-                  </div>
-
-                  <div className="form-group-modern">
-                    <label htmlFor="closure-date-to" className="form-label-modern">
-                      Last day <span className="required-star">*</span>
-                    </label>
-                    <input
-                      id="closure-date-to"
-                      type="date"
-                      min={dateFrom}
-                      max={maxDateTo}
-                      value={dateTo}
-                      onChange={(e) => setDateTo(e.target.value)}
-                      className="form-input-modern date-input-modern"
-                      required
-                    />
-                  </div>
-
-                  <p className="form-field-helper">
-                    Sundays are skipped because the clinic is already closed.
-                  </p>
-                </div>
-              )}
-
-              {/* Duration Mode: Specific hours */}
-              {durationMode === 'specific_hours' && (
-                <div className="specific-hours-block">
-                  <div className="form-group-modern">
-                    <label htmlFor="closure-specific-date" className="form-label-modern">
-                      Date <span className="required-star">*</span>
-                    </label>
-                    <input
-                      id="closure-specific-date"
-                      type="date"
-                      min={todayIST}
-                      value={specificDate}
-                      onChange={(e) => {
-                        const val = e.target.value
-                        setSpecificDate(val)
-                        setDialogError(null)
-                      }}
-                      className="form-input-modern date-input-modern"
-                      required
-                    />
-                    {isSundayIST(specificDate) && (
-                      <p className="form-field-warning" role="alert">
-                        ⚠️ The clinic is closed on Sundays
-                      </p>
-                    )}
-                  </div>
-
-                  <div className="specific-hours-row">
-                    <div className="form-group-modern">
-                      <label htmlFor="closure-time-from" className="form-label-modern">
-                        From <span className="required-star">*</span>
+                ) : (
+                  <div className="note-revealed-box">
+                    <div className="note-label-row">
+                      <label htmlFor="closure-step2-note" className="form-label-modern">
+                        Note <span className="optional-tag">(optional)</span>
                       </label>
-                      <select
-                        id="closure-time-from"
-                        value={effectiveStartTime}
-                        onChange={(e) => setStartTime(e.target.value)}
-                        className="form-input-modern form-select-modern"
+                      <span
+                        className={`note-char-counter ${
+                          note.length >= 190 ? 'char-counter-warn' : ''
+                        }`}
+                        aria-live="polite"
                       >
-                        {availableFromTimes.map((t) => (
-                          <option key={t} value={t}>
-                            {formatTime24To12(t)}
-                          </option>
-                        ))}
-                      </select>
+                        {note.length}/200
+                      </span>
                     </div>
-
-                    <div className="form-group-modern">
-                      <label htmlFor="closure-time-until" className="form-label-modern">
-                        Until <span className="required-star">*</span>
-                      </label>
-                      <select
-                        id="closure-time-until"
-                        value={effectiveEndTime}
-                        onChange={(e) => setEndTime(e.target.value)}
-                        className="form-input-modern form-select-modern"
-                      >
-                        {availableUntilTimes.map((t) => (
-                          <option key={t} value={t}>
-                            {formatTime24To12(t)}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
+                    <textarea
+                      id="closure-step2-note"
+                      rows={2}
+                      maxLength={200}
+                      value={note}
+                      onChange={(e) => setNote(e.target.value)}
+                      placeholder="For example: Doctor at a dental conference"
+                      className="form-input-modern form-textarea-modern"
+                      autoFocus
+                    />
                   </div>
-                </div>
-              )}
-
-              {/* Note (optional) with 200 char counter */}
-              <div className="form-group-modern">
-                <div className="note-label-row">
-                  <label htmlFor="closure-note" className="form-label-modern">
-                    Note <span className="optional-tag">(optional)</span>
-                  </label>
-                  <span
-                    className={`note-char-counter ${note.length >= 190 ? 'char-counter-warn' : ''}`}
-                    aria-live="polite"
-                  >
-                    {note.length}/200
-                  </span>
-                </div>
-                <textarea
-                  id="closure-note"
-                  rows={2}
-                  maxLength={200}
-                  value={note}
-                  onChange={(e) => setNote(e.target.value)}
-                  placeholder="For example: Doctor at a dental conference"
-                  className="form-input-modern form-textarea-modern"
-                />
+                )}
               </div>
             </div>
 
-            {/* Footer Buttons */}
+            {/* Sticky Footer */}
             <footer className="modal-sheet-footer">
+              <div className="sheet-footer-primary-wrap">
+                <button
+                  type="button"
+                  onClick={handleGoToReview}
+                  disabled={!isStep2Valid}
+                  className="btn btn-primary btn-submit-sheet"
+                >
+                  Next →
+                </button>
+                {!isStep2Valid && step2Error && (
+                  <span className="sheet-footer-helper-msg" role="status">
+                    {step2Error}
+                  </span>
+                )}
+              </div>
               <button
                 type="button"
-                onClick={handleReview}
-                disabled={
-                  durationMode === 'specific_hours' && isSundayIST(specificDate)
-                }
-                className="btn btn-primary btn-submit-sheet"
-              >
-                Review →
-              </button>
-              <button
-                type="button"
-                onClick={onClose}
+                onClick={() => {
+                  setStep(1)
+                  setDialogError(null)
+                }}
                 className="btn btn-secondary btn-cancel-sheet"
               >
-                Cancel
+                <ArrowLeft size={16} aria-hidden="true" />
+                <span>Back</span>
               </button>
             </footer>
           </div>
-        ) : (
-          /* STEP 2: REVIEW & CONFIRM STEP */
+        )}
+
+        {/* ==================================================================
+            STEP 3: Check and confirm (Impact lookup + summary)
+            ================================================================== */}
+        {step === 3 && (
           <div className="modal-sheet-form">
             <div className="modal-scroll-area review-scroll-area">
               <div className="closure-review-summary-card">
                 <span className="review-badge-label">CLOSURE SUMMARY</span>
-                <p className="review-summary-main">
-                  You are about to block: <strong>{dateSummary}</strong> ({windowSummary}).
-                </p>
-                <p className="review-summary-sub">
-                  Reason: <strong>{reasonLabel}</strong>
-                  {note.trim() && ` • Note: "${note.trim()}"`}
-                </p>
+
+                <div className="review-summary-row">
+                  <div className="review-icon-tile">
+                    <Calendar size={18} aria-hidden="true" />
+                  </div>
+                  <div className="review-row-text">
+                    <span className="review-row-label">Time to block</span>
+                    <strong className="review-row-val">{summaryWhat}</strong>
+                  </div>
+                </div>
+
+                <div className="review-summary-row">
+                  <div className="review-icon-tile">
+                    <UserX size={18} aria-hidden="true" />
+                  </div>
+                  <div className="review-row-text">
+                    <span className="review-row-label">Reason</span>
+                    <strong className="review-row-val">{reasonLabel}</strong>
+                  </div>
+                </div>
+
+                {note.trim() && (
+                  <div className="review-summary-row">
+                    <div className="review-icon-tile">
+                      <MoreHorizontal size={18} aria-hidden="true" />
+                    </div>
+                    <div className="review-row-text">
+                      <span className="review-row-label">Staff note</span>
+                      <span className="review-row-note">“{note.trim()}”</span>
+                    </div>
+                  </div>
+                )}
               </div>
 
-              {/* Booking Impact Notice */}
+              {/* Existing Bookings Impact Box */}
               {checkingBookings ? (
                 <div className="review-lookup-loading">
                   <Loader2 size={18} className="spinner-inline" aria-hidden="true" />
-                  <span>Checking existing bookings for this window...</span>
+                  <span>Checking bookings for this window...</span>
                 </div>
               ) : previewBookings.length > 0 ? (
                 <div className="review-bookings-impact-box box-amber" role="alert">
                   <div className="impact-header">
                     <AlertTriangle size={18} className="impact-icon-amber" aria-hidden="true" />
                     <strong>
-                      {previewBookings.length} existing {previewBookings.length === 1 ? 'booking falls' : 'bookings fall'} in this time.
+                      {previewBookings.length} existing{' '}
+                      {previewBookings.length === 1 ? 'booking falls' : 'bookings fall'} in this
+                      time.
                     </strong>
                   </div>
                   <p className="impact-desc">
-                    They will NOT be cancelled automatically. You will see the list next so you can move or cancel them and call the patients.
+                    They will NOT be cancelled automatically. You will see the list next so you
+                    can move or cancel them and call the patients.
                   </p>
                   <ul className="preview-bookings-list">
                     {previewBookings.slice(0, 5).map((b) => (
                       <li key={b.id} className="preview-booking-item">
-                        <span className="preview-patient">{b.patient_name || 'Patient'}</span>
+                        <strong className="preview-patient">{b.patient_name || 'Patient'}</strong>
                         <span className="preview-time">{formatSlotRange(b.slot_start)}</span>
                       </li>
                     ))}
@@ -663,7 +1130,7 @@ export default function AddClosureDialog({ isOpen, onClose, onSuccess }) {
               )}
             </div>
 
-            {/* Footer Buttons for Review */}
+            {/* Sticky Footer */}
             <footer className="modal-sheet-footer">
               <button
                 type="button"
@@ -683,18 +1150,20 @@ export default function AddClosureDialog({ isOpen, onClose, onSuccess }) {
               <button
                 type="button"
                 onClick={() => {
-                  setStep('form')
+                  setStep(2)
                   setDialogError(null)
                 }}
                 disabled={isSaving}
                 className="btn btn-secondary btn-cancel-sheet"
               >
-                Back
+                <ArrowLeft size={16} aria-hidden="true" />
+                <span>Back</span>
               </button>
             </footer>
           </div>
         )}
       </div>
-    </div>
+    </div>,
+    document.body
   )
 }
